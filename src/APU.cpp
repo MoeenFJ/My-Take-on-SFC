@@ -7,6 +7,7 @@ typedef unsigned int add24;
 
 class APU
 {
+    //The Following is AI generated, for now.
 public:
     // Step 1: Signal ready. Port 0 = $AA, Port 1 = $BB
     uint8 out_ports[4] = {0xAA, 0xBB, 0x00, 0x00};

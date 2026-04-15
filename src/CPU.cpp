@@ -107,11 +107,6 @@ public:
         return bits;
     }
 
-    const bool operator[](const int &i)
-    {
-        return (i <= 7 ? (L & (1 << i)) : (H & (1 << (i - 8)))) >> i;
-    }
-
     const uint16_t operator-=(const uint16_t &i)
     {
         *this = (uint16_t)*this - (uint16_t)i;
@@ -160,12 +155,39 @@ struct CPURegisters
 
 using C65ReadByteFunc_t = uint8 (*)(add24);
 using C65WriteByteFunc_t = void (*)(add24, uint8);
+
+enum AddressingMode
+{
+    Abs = 0,
+    AbsX = 1,
+    AbsY = 2,
+    AbsPtr16 = 3,
+    AbsPtr24 = 4,
+    AbsXPtr16 = 5,
+
+    Dir = 6,
+    DirX = 7,
+    DirY = 8,
+    DirPtr16 = 9,
+    DirPtr24 = 10,
+    DirXPtr16 = 11,
+    DirPtr16Y = 12,
+    DirPtr24Y = 13,
+
+    Imm = 14,
+    Long = 15,
+    LongX = 16,
+    Rel8 = 17,
+    Rel16 = 18,
+    SrcDst = 19,
+    STK = 20,
+    STKPtr16Y = 21
+};
 class CPU
 {
 
     C65ReadByteFunc_t ReadByte;
     C65WriteByteFunc_t WriteByte;
-    ofstream pcInstDump;
 
 public:
     FlagsRegister flags; // Status Reg
@@ -176,93 +198,212 @@ public:
     bool stop = false;
     add24 instAddress;
 
-    add24 AddressingMode_16PTR(add24 lo) // ()
+
+    add24 PCByteAhead(uint8 n = 1)
     {
-        return (cregs.DBR << 16) | (ReadByte(lo + 1) << 8) | ReadByte(lo);
+        return ((add24)cregs.K << 16) | (((add24)cregs.PC + n) & 0x00FFFF);
     }
 
-    add24 AddressingMode_24PTR(add24 lo) // []
+    uint16 ReadWord()
     {
-        return (ReadByte(lo + 2) << 16) | (ReadByte(lo + 1) << 8) | ReadByte(lo);
-    }
-
-    add24 AddressingMode_STK(add24 lo)
-    {
-        return ReadByte(lo) + cregs.S;
-    }
-
-    add24 AddressingMode_Direct(add24 ll, bool old = true)
-    {
-        ll = ReadByte(ll);
-        if (flagE && old && cregs.D.L == 0x00)
-        {
-            return (cregs.D.H << 8) | ll;
-        }
-        else
-        {
-            return cregs.D + ll;
-        }
-    }
-    add24 AddressingMode_Absolute(add24 ll, bool jmp = false)
-    {
-        if (jmp)
-        {
-            return ReadWord(ll);
-        }
-        else
-        {
-            return (cregs.DBR << 16) | ReadWord(ll);
-        }
-    }
-
-    add24 AddressingMode_Long(add24 address)
-    {
-        return (add24)ReadByte(address) | ((add24)ReadByte(address + 1) << 8) | ((add24)ReadByte(address + 2) << 16);
-    }
-
-    uint16 ReadWord(add24 address)
-    {
-        uint16 low = ReadByte(address);
-        uint16 high = ReadByte(address + 1);
+        uint16 low = ReadByte(addL);
+        uint16 high = ReadByte(addH);
         return (high << 8) | low;
     }
-
-    void WriteWord(add24 address, uint16 data)
+    void WriteWord(uint16 data)
     {
-        WriteByte(address, data & 0x00FF);
-        WriteByte(address + 1, data >> 8);
+        WriteByte(addL, data & 0x00FF);
+        WriteByte(addH, data >> 8);
     }
 
-    void WriteM(add24 abs, uint16 d)
+    uint16 ReadWordAt(add24 add)
+    {
+        uint16 low = ReadByte(add);
+        uint16 high = ReadByte(add + 1);
+        return (high << 8) | low;
+    }
+    void WriteWordAt(add24 add, uint16 data)
+    {
+        WriteByte(add, data & 0x00FF);
+        WriteByte(add + 1, data >> 8);
+    }
+
+    add24 addL, addH, addXH;
+    void ResolveAddress(AddressingMode mode)
+    {
+        uint8 ll, hh, xh;
+        ll = ReadByte(PCByteAhead(1));
+        hh = ReadByte(PCByteAhead(2));
+        xh = ReadByte(PCByteAhead(3));
+
+        // Phase one
+        switch (mode)
+        {
+        case Rel8:
+        case Rel16:
+        case Imm:
+            addL = PCByteAhead(1);
+            addH = PCByteAhead(2);
+            break;
+
+        case AbsPtr16:
+        case AbsPtr24:
+            addL =  (hh << 8) | ll;
+            addH = addL + 1;
+            addH &= 0x00FFFF;
+            addXH = addL + 2;
+            addXH &= 0x00FFFF;
+            break;
+
+        case Abs:
+            addL = (cregs.DBR << 16) | (hh << 8) | ll;
+            addH = addL + 1;
+            addXH = addL + 2;
+            break;
+
+        case AbsXPtr16:
+            addL =  (hh << 8) | ll;
+            addL += cregs.X;
+
+            addH = addL + 1;
+
+            addL &= 0x00FFFF;
+            addH &= 0x00FFFF;
+            addL |= cregs.K << 16;
+            addH |= cregs.K << 16;
+            break;
+            
+        case AbsX:
+            addL = (cregs.DBR << 16) | (hh << 8) | ll;
+            addL += cregs.X;
+            addH = addL + 1;
+            addXH = addL + 2;
+            break;
+
+        case AbsY:
+            addL = (cregs.DBR << 16) | (hh << 8) | ll;
+            addL += cregs.Y;
+            addH = addL + 1;
+            addXH = addL + 2;
+            break;
+
+        case DirPtr16:
+        case DirPtr24:
+        case DirPtr24Y:
+        case DirPtr16Y:
+        case Dir:
+            addL = (cregs.D + ll) & 0x00FFFF;
+            addH = (cregs.D + ll + 1) & 0x00FFFF;
+            addXH = (cregs.D + ll + 2) & 0x00FFFF;
+            break;
+
+        case DirXPtr16:
+        case DirX:
+            addL = (cregs.D + ll + cregs.X) & 0x00FFFF;
+            addH = (cregs.D + ll + cregs.X + 1) & 0x00FFFF;
+            addXH = (cregs.D + ll + cregs.X + 2) & 0x00FFFF;
+            break;
+
+        case DirY:
+            addL = (cregs.D + ll + cregs.Y) & 0x00FFFF;
+            addH = (cregs.D + ll + cregs.Y + 1) & 0x00FFFF;
+            addXH = (cregs.D + ll + cregs.Y + 2) & 0x00FFFF;
+            break;
+
+        case Long:
+            addL = (xh << 16) | (hh << 8) | (ll);
+            addH = addL + 1;
+            break;
+
+        case LongX:
+            addL = (xh << 16) | (hh << 8) | (ll);
+            addL += cregs.X;
+            addH = addL + 1;
+            break;
+
+        case STKPtr16Y:
+        case STK:
+            addL = (ll + cregs.S) & 0x00FFFF;
+            addH = (ll + cregs.S + 1) & 0x00FFFF;
+            break;
+        default:
+            break;
+
+            
+        }
+
+        switch (mode)
+        {
+        case AbsXPtr16:
+        case AbsPtr16:
+            addL = (cregs.K << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
+            break;
+        
+        case DirPtr16:
+        case DirXPtr16:
+        case DirPtr16Y:
+        case STKPtr16Y:
+            addL = (cregs.DBR << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
+            addH = addL + 1;
+            break;
+
+        case AbsPtr24:
+        case DirPtr24:
+        case DirPtr24Y:
+            addL = (ReadByte(addXH) << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
+            addH = addL + 1;
+
+        default:
+            break;
+        }
+
+        switch (mode)
+        {
+        case DirPtr16Y:
+        case DirPtr24Y:
+        case STKPtr16Y:
+            addL += cregs.Y;
+            addH += cregs.Y;
+            break;
+
+        default:
+            break;
+        }
+
+        addL &= 0x00FFFFFF;
+            addH &= 0x00FFFFFF;
+    }
+
+    void WriteM(uint16 d)
     {
         if (flags.M)
-            WriteByte(abs, d);
+            WriteByte(addL, d);
         else
-            WriteWord(abs, d);
+            WriteWord(d);
     }
 
-    void WriteX(add24 abs, uint16 d)
+    void WriteX(uint16 d)
     {
         if (flags.X)
-            WriteByte(abs, d);
+            WriteByte(addL, d);
         else
-            WriteWord(abs, d);
+            WriteWord(d);
     }
 
-    uint16 ReadM(add24 abs)
+    uint16 ReadM()
     {
         if (flags.M)
-            return ReadByte(abs);
+            return ReadByte(addL);
         else
-            return ReadWord(abs);
+            return ReadWord();
     }
 
-    uint16 ReadX(add24 abs)
+    uint16 ReadX()
     {
         if (flags.X)
-            return ReadByte(abs);
+            return ReadByte(addL);
         else
-            return ReadWord(abs);
+            return ReadWord();
     }
 
     void Push(uint8 d)
@@ -273,9 +414,9 @@ public:
     void PushWord(uint16 d)
     {
         cregs.S -= 1;
-        WriteWord(cregs.S, d);
+        WriteByte(cregs.S, d & 0x00ff);
+        WriteByte(cregs.S + 1, (d & 0xff00) >> 8);
         cregs.S -= 1;
-        // cin.get();
     }
 
     void UpdateC(uint16 val)
@@ -322,7 +463,7 @@ public:
     uint16 PopWord()
     {
         cregs.S += 1;
-        uint16 val = ReadWord(cregs.S);
+        uint16 val = ReadByte(cregs.S + 1) << 8 | ReadByte(cregs.S);
         cregs.S += 1;
         return val;
     }
@@ -347,14 +488,12 @@ public:
         flags.X = 1;
         flags.M = 1;
         flags.I = 1;
-
-        pcInstDump = ofstream("dump.csv");
     }
 
     // Interrupts
     void reset()
     {
-        uint16 rstVector = ReadWord(0x00FFFC);
+        uint16 rstVector = ReadWordAt(0x00FFFC);
         cregs.K = 0;
         cregs.PC = rstVector;
         cout << "rstVector : " << rstVector << endl;
@@ -374,9 +513,9 @@ public:
         uint16 nmi;
         cregs.K = 0;
         if (flagE)
-            nmi = ReadWord(0xFFFA);
+            nmi = ReadWordAt(0x00FFFA);
         else
-            nmi = ReadWord(0xFFEA);
+            nmi = ReadWordAt(0x00FFEA);
         cregs.PC = nmi;
     }
 
@@ -403,9 +542,9 @@ public:
         uint16 irq;
         cregs.K = 0;
         if (flagE)
-            irq = ReadWord(0xFFFE);
+            irq = ReadWordAt(0x00FFFE);
         else
-            irq = ReadWord(0xFFEE);
+            irq = ReadWordAt(0x00FFEE);
         cregs.PC = irq;
     }
 
@@ -423,7 +562,7 @@ public:
 
                 // 1. Calculate pure binary sum just for the V flag
                 int binSum = op1 + op2 + flags.C;
-                flags.V = (((op1 ^ binSum) & (op2 ^ binSum) & 0x80) != 0);
+                // flags.V = (((op1 ^ binSum) & (op2 ^ binSum) & 0x80) != 0);
 
                 // 2. Perform BCD Adjustments
                 int al = (op1 & 0x0F) + (op2 & 0x0F) + flags.C;
@@ -436,6 +575,7 @@ public:
 
                 t = (ah & 0xF0) | (al & 0x0F);
                 flags.C = (ah > 0xFF);
+                flags.V = (((op1 ^ t) & (op2 ^ t) & 0x80) != 0);
             }
             else
             {
@@ -444,7 +584,7 @@ public:
                 int op2 = d & 0xFFFF;
 
                 int binSum = op1 + op2 + flags.C;
-                flags.V = (((op1 ^ binSum) & (op2 ^ binSum) & 0x8000) != 0);
+                // flags.V = (((op1 ^ binSum) & (op2 ^ binSum) & 0x8000) != 0);
 
                 int al = (op1 & 0x000F) + (op2 & 0x000F) + flags.C;
                 if (al > 0x0009)
@@ -464,6 +604,7 @@ public:
 
                 t = (bh & 0xF000) | (bl & 0x0F00) | (ah & 0x00F0) | (al & 0x000F);
                 flags.C = (bh > 0xFFFF);
+                flags.V = (((op1 ^ t) & (op2 ^ t) & 0x80) != 0);
             }
         }
         else
@@ -586,6 +727,7 @@ public:
         flags.N = (t & (flags.M ? 0x0080 : 0x8000)) != 0;
         flags.Z = (t & (flags.M ? 0x00FF : 0xFFFF)) == 0;
     }
+    
     void printStatus()
     {
         // nvmxdizc
@@ -608,9 +750,9 @@ public:
         cout << "InstAddress : " << std::hex << instAddress << endl;
         uint8_t inst = ReadByte(instAddress);
         cout << "OpCode : " << std::hex << (int)inst << endl;
-        pcInstDump << hex << instAddress << "," << std::hex << (int)inst << endl;
         cout << "3 Bytes Ahead : " << std::hex << (int)ReadByte(instAddress + 1) << " " << std::hex << (int)ReadByte(instAddress + 2) << " " << std::hex << (int)ReadByte(instAddress + 3) << " " << endl;
     }
+    
     string stringStatus()
     {
         stringstream ss;
@@ -635,7 +777,6 @@ public:
         ss << "InstAddress : " << std::hex << instAddress << endl;
         uint8_t inst = ReadByte(instAddress);
         ss << "OpCode : " << std::hex << (int)inst << endl;
-        pcInstDump << hex << instAddress << "," << std::hex << (int)inst << endl;
         ss << "3 Bytes Ahead : " << std::hex << (int)ReadByte(instAddress + 1) << " " << std::hex << (int)ReadByte(instAddress + 2) << " " << std::hex << (int)ReadByte(instAddress + 3) << " " << endl;
 
         return ss.str();
@@ -690,14 +831,14 @@ public:
             uint16 brk;
             cregs.K = 0;
             if (flagE)
-                brk = ReadWord(0xFFFE); // IRQ with b flag
+                brk = ReadWordAt(0x00FFFE); // IRQ with b flag
             else
-                brk = ReadWord(0xFFE6);
+                brk = ReadWordAt(0x00FFE6);
             cregs.PC = brk;
 
             cout << "=-=-=-=-=-=-=-=-=-=-= BREAK POINT =-=-=-=-=-=-=-=-=-=-=" << endl;
 
-            cin.get();
+            // cin.get();
             break;
         }
         // Needs more reading and changing, not gonna be use anyways
@@ -713,9 +854,9 @@ public:
             uint16 cop;
             cregs.K = 0;
             if (flagE)
-                cop = ReadWord(0xFFF4);
+                cop = ReadWordAt(0x00FFF4);
             else
-                cop = ReadWord(0xFFE4);
+                cop = ReadWordAt(0x00FFE4);
             cregs.PC = cop;
             break;
         }
@@ -786,14 +927,16 @@ public:
 
         case 0xc2: // REP imm - Reset selected Flags
         {
-            uint8 imm = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint8 imm = ReadByte(addL);
             flags.ResetMask(imm);
             cregs.PC += 2;
             break;
         }
         case 0xe2: // SEP imm - Set selected Flags
         {
-            uint8 imm = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint8 imm = ReadByte(addL);
             flags.SetMask(imm);
             cregs.PC += 2;
             break;
@@ -939,21 +1082,24 @@ public:
 
         case 0xf4: // PEA
         {
-            uint16 imm = ReadWord(instAddress + 1);
-            PushWord(imm);
+
+            ResolveAddress(AddressingMode::Imm);
+            PushWord(ReadWord());
             cregs.PC += 3;
             break;
         }
         case 0xd4: // PEI
         {
-            add24 add = AddressingMode_Direct(instAddress + 1, false);
-            PushWord(ReadWord(add)); // Or ReadM?
+            // TODO : exception in address resolve
+            ResolveAddress(AddressingMode::Dir);
+            PushWord(ReadWord()); // Or ReadM?
             cregs.PC += 2;
             break;
         }
         case 0x62: // PER
         {
-            signed short imm = ReadWord(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            signed short imm = ReadWord();
             PushWord(instAddress + 3 + imm);
             cregs.PC += 3;
             break;
@@ -963,12 +1109,11 @@ public:
 // Arithmatics
 #pragma region Arithmatics
 
-        // TODO : CHECK ALL ARITH FLAGS
         case 0x61: // ADC (dir,x)
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -976,8 +1121,8 @@ public:
         case 0x63: // ADC stk,S
         {
             // TODO : BCD for D flag
-            add24 add = cregs.S + ReadByte(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -985,8 +1130,8 @@ public:
         case 0x65: // ADC dir
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -994,8 +1139,8 @@ public:
         case 0x67: // ADC [dir]
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1004,7 +1149,9 @@ public:
         {
             // TODO : BCD for D flag
             // cin.get();
-            uint16 imm = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+
+            uint16 imm = ReadM();
             doADC(imm);
 
             cregs.PC += 3 - flags.M;
@@ -1014,8 +1161,8 @@ public:
         case 0x6d: // ADC abs
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
             break;
@@ -1024,8 +1171,8 @@ public:
         case 0x6f: // ADC long
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
             break;
@@ -1033,8 +1180,8 @@ public:
         case 0x71: // ADC (dir),y
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1043,8 +1190,8 @@ public:
         case 0x72: // ADC (dir)
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1052,8 +1199,8 @@ public:
         case 0x73: // ADC (stk,s),y
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_16PTR(cregs.S + ReadByte(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1061,8 +1208,8 @@ public:
         case 0x75: // ADC dir,x
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1070,8 +1217,8 @@ public:
         case 0x77: // ADC [dir],y
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
             break;
@@ -1080,8 +1227,8 @@ public:
         case 0x79: // ADC abs,y
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
             break;
@@ -1090,8 +1237,8 @@ public:
         case 0x7d: // ADC abs,x
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
             break;
@@ -1100,8 +1247,8 @@ public:
         case 0x7f: // ADC long,x
         {
             // TODO : BCD for D flag
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
             break;
@@ -1110,8 +1257,8 @@ public:
         case 0xe1: // SBC (dir,x)
         {
 
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1119,8 +1266,8 @@ public:
         case 0xe3: // SBC stk,S
         {
 
-            add24 add = cregs.S + ReadByte(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1129,8 +1276,8 @@ public:
         case 0xe5: // SBC dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1139,8 +1286,8 @@ public:
         case 0xe7: // SBC [dir]
         {
 
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1148,8 +1295,8 @@ public:
 
         case 0xe9: // SBC imm
         {
-
-            uint16 imm = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadM();
             doSBC(imm);
             cregs.PC += 3 - flags.M;
             break;
@@ -1158,8 +1305,8 @@ public:
         case 0xed: // SBC abs
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
             break;
@@ -1167,8 +1314,8 @@ public:
         case 0xef: // SBC long
         {
 
-            add24 add = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
             break;
@@ -1176,17 +1323,16 @@ public:
         case 0xf1: // SBC (dir),y
         {
 
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
         }
         case 0xf2: // SBC (dir)
         {
-
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1194,8 +1340,8 @@ public:
         case 0xf3: // SBC (stk,S),y
         {
 
-            add24 add = AddressingMode_16PTR(cregs.S + ReadByte(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1203,8 +1349,8 @@ public:
         case 0xf5: // SBC dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1212,8 +1358,8 @@ public:
         case 0xf7: // SBC [dir],y
         {
 
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
             break;
@@ -1221,8 +1367,8 @@ public:
         case 0xf9: // SBC abs,y
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
             break;
@@ -1230,8 +1376,8 @@ public:
         case 0xfd: // SBC abs,x
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
             break;
@@ -1239,8 +1385,8 @@ public:
         case 0xff: // SBC long,x
         {
 
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
             break;
@@ -1248,7 +1394,8 @@ public:
 
         case 0x3a: // DEC acc
         {
-            cregs.C -= 1;
+
+            UpdateC(cregs.C - 1);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
@@ -1256,10 +1403,10 @@ public:
         }
         case 0xc6: // DEC dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             d -= 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1268,10 +1415,10 @@ public:
         }
         case 0xce: // DEC abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             d -= 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1280,10 +1427,10 @@ public:
         }
         case 0xd6: // DEC dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             d -= 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1292,10 +1439,10 @@ public:
         }
         case 0xde: // DEC abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             d -= 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1323,7 +1470,8 @@ public:
 
         case 0x1a: // INC acc
         {
-            cregs.C += 1;
+
+            UpdateC(cregs.C + 1);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
@@ -1332,10 +1480,10 @@ public:
 
         case 0xe6: // INC dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             d += 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1344,10 +1492,10 @@ public:
         }
         case 0xee: // INC abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             d += 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1356,10 +1504,10 @@ public:
         }
         case 0xf6: // INC dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             d += 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1368,10 +1516,10 @@ public:
         }
         case 0xfe: // INC abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             d += 1;
-            WriteM(add, d);
+            WriteM(d);
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1402,8 +1550,8 @@ public:
 #pragma region Bitwise_Arithmatics
         case 0x21: // AND (dir,x)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1413,8 +1561,8 @@ public:
         }
         case 0x23: // AND stk,S
         {
-            add24 add = ReadByte(instAddress + 1) + cregs.S;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1423,8 +1571,8 @@ public:
         }
         case 0x25: // AND dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1433,8 +1581,8 @@ public:
         }
         case 0x27: // AND [dir]
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1443,7 +1591,8 @@ public:
         }
         case 0x29: // AND imm
         {
-            uint16 d = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1452,8 +1601,8 @@ public:
         }
         case 0x2d: // AND abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1462,8 +1611,8 @@ public:
         }
         case 0x2f: // AND long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1473,8 +1622,8 @@ public:
 
         case 0x31: // AND (dir),y
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1484,8 +1633,8 @@ public:
 
         case 0x32: // AND (dir)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+           ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1495,8 +1644,8 @@ public:
 
         case 0x33: // AND (stks,S),y
         {
-            add24 add = AddressingMode_16PTR(ReadByte(instAddress + 1) + cregs.S) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1506,8 +1655,8 @@ public:
 
         case 0x35: // AND dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1516,8 +1665,8 @@ public:
         }
         case 0x37: // AND [dir],y
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1527,8 +1676,8 @@ public:
 
         case 0x39: // AND abs,y
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1538,8 +1687,8 @@ public:
         }
         case 0x3d: // AND abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1550,8 +1699,8 @@ public:
 
         case 0x3f: // AND long,x
         {
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1562,8 +1711,8 @@ public:
         // EORS
         case 0x41: // EOR (dir,x)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1572,8 +1721,8 @@ public:
         }
         case 0x43: // EOR stk,S
         {
-            add24 add = ReadByte(instAddress + 1) + cregs.S;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1582,8 +1731,8 @@ public:
         }
         case 0x45: // EOR dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1592,8 +1741,8 @@ public:
         }
         case 0x47: // EOR [dir]
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1602,7 +1751,8 @@ public:
         }
         case 0x49: // EOR imm
         {
-            uint16 d = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1611,8 +1761,8 @@ public:
         }
         case 0x4d: // EOR abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1621,8 +1771,8 @@ public:
         }
         case 0x4f: // EOR long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1632,8 +1782,8 @@ public:
 
         case 0x51: // EOR (dir),y
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1643,8 +1793,8 @@ public:
 
         case 0x52: // EOR (dir)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1654,8 +1804,8 @@ public:
 
         case 0x53: // EOR (stks,S),y
         {
-            add24 add = AddressingMode_16PTR(ReadByte(instAddress + 1) + cregs.S) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1665,8 +1815,8 @@ public:
 
         case 0x55: // EOR dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1675,8 +1825,8 @@ public:
         }
         case 0x57: // EOR [dir],y
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1686,8 +1836,8 @@ public:
 
         case 0x59: // EOR abs,y
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1696,8 +1846,8 @@ public:
         }
         case 0x5d: // EOR abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1707,8 +1857,8 @@ public:
 
         case 0x5f: // EOR long,x
         {
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1719,8 +1869,8 @@ public:
         // ORAs
         case 0x01: // ORA (dir,x)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1729,8 +1879,8 @@ public:
         }
         case 0x03: // ORA stk,S
         {
-            add24 add = ReadByte(instAddress + 1) + cregs.S;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1739,8 +1889,8 @@ public:
         }
         case 0x05: // ORA dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1749,8 +1899,8 @@ public:
         }
         case 0x07: // ORA [dir]
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1759,7 +1909,8 @@ public:
         }
         case 0x09: // ORA imm
         {
-            uint16 d = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1768,8 +1919,8 @@ public:
         }
         case 0x0d: // ORA abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1778,8 +1929,8 @@ public:
         }
         case 0x0f: // ORA long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1789,8 +1940,8 @@ public:
 
         case 0x11: // ORA (dir),y
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1800,8 +1951,8 @@ public:
 
         case 0x12: // ORA (dir)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1811,8 +1962,8 @@ public:
 
         case 0x13: // ORA (stks,S),y
         {
-            add24 add = AddressingMode_16PTR(ReadByte(instAddress + 1) + cregs.S) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1822,8 +1973,8 @@ public:
 
         case 0x15: // ORA dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1832,8 +1983,8 @@ public:
         }
         case 0x17: // ORA [dir],y
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1843,8 +1994,8 @@ public:
 
         case 0x19: // ORA abs,y
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1853,8 +2004,8 @@ public:
         }
         case 0x1d: // ORA abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1864,8 +2015,8 @@ public:
 
         case 0x1f: // ORA long,x
         {
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -1875,8 +2026,8 @@ public:
 
         case 0x06: // ASL dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 t = ReadM();
             if (flags.M)
             {
 
@@ -1887,7 +2038,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = t << 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1914,8 +2065,8 @@ public:
         }
         case 0x0e: // ASL abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 t = ReadM();
             if (flags.M)
             {
 
@@ -1926,7 +2077,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = t << 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1936,8 +2087,8 @@ public:
 
         case 0x16: // ASL dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 t = ReadM();
             if (flags.M)
             {
 
@@ -1948,7 +2099,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = t << 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1958,8 +2109,8 @@ public:
 
         case 0x1e: // ASL abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 t = ReadM();
             if (flags.M)
             {
 
@@ -1970,7 +2121,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = t << 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -1980,11 +2131,11 @@ public:
 
         case 0x46: // LSR dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 2;
@@ -1993,8 +2144,13 @@ public:
 
         case 0x4a: // LSR acc
         {
-            flags.C = cregs.C[0];
-            UpdateC(cregs.C >> 1);
+            flags.C = cregs.C & 0x0001;
+            uint16 t;
+            if (flags.M)
+                t = (cregs.C & 0x00FF) >> 1;
+            else
+                t = cregs.C >> 1;
+            UpdateC(t);
             flags.N = 0;
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
@@ -2003,11 +2159,11 @@ public:
 
         case 0x4e: // LSR abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 3;
@@ -2016,11 +2172,11 @@ public:
 
         case 0x56: // LSR dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 2;
@@ -2029,11 +2185,11 @@ public:
 
         case 0x5e: // LSR abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 3;
@@ -2043,8 +2199,8 @@ public:
         case 0x26: // ROL dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
             {
@@ -2055,7 +2211,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = (t << 1) | c;
-            WriteM(add, t);
+            WriteM( t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2063,20 +2219,20 @@ public:
             break;
         }
 
-        // TODO : update this later to uese UpdateC
         case 0x2a: // ROL acc
         {
 
             if (flags.M)
             {
                 bool c = flags.C;
-                flags.C = cregs.C[7];
+                flags.C = cregs.C & 0x0080;
                 UpdateC((cregs.C << 1) + c);
             }
             else
             {
                 bool c = flags.C;
-                flags.C = cregs.C[15];
+                flags.C = cregs.C & 0x8000;
+
                 UpdateC((cregs.C << 1) + c);
             }
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2089,8 +2245,8 @@ public:
         case 0x2e: // ROL abs
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
             {
@@ -2101,7 +2257,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = (t << 1) | c;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2112,8 +2268,8 @@ public:
         case 0x36: // ROL dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
             {
@@ -2124,7 +2280,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = (t << 1) | c;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2135,8 +2291,8 @@ public:
         case 0x3e: // ROL abs,x
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
             {
@@ -2147,7 +2303,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = (t << 1) | c;
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2158,13 +2314,13 @@ public:
         case 0x66: // ROR dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
             t = (t >> 1) | (flags.M ? c << 7 : c << 15);
 
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2177,7 +2333,16 @@ public:
 
             bool c = flags.C;
             flags.C = cregs.C & 0x0001;
-            UpdateC((cregs.C >> 1) | (flags.M ? c << 7 : c << 15));
+            uint16 t;
+            if (flags.M)
+            {
+                t = ((cregs.C & 0x00FF) >> 1) | (c << 7);
+            }
+            else
+            {
+                t = (cregs.C >> 1) | (c << 15);
+            }
+            UpdateC(t);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
@@ -2189,13 +2354,13 @@ public:
         case 0x6e: // ROR abs
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
             t = (t >> 1) | (flags.M ? c << 7 : c << 15);
 
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2206,13 +2371,13 @@ public:
         case 0x76: // ROR dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
             t = (t >> 1) | (flags.M ? c << 7 : c << 15);
 
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2223,13 +2388,13 @@ public:
         case 0x7e: // ROR abs,x
         {
 
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 t = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
             t = (t >> 1) | (flags.M ? c << 7 : c << 15);
 
-            WriteM(add, t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2255,8 +2420,8 @@ public:
         {
             cregs.D = cregs.C;
 
-            flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
-            flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
+            flags.N = cregs.C & 0x8000;
+            flags.Z = !(cregs.C);
 
             cregs.PC += 1;
             break;
@@ -2264,20 +2429,17 @@ public:
         case 0x1b: // TCS - S <- C
         {
             cregs.S = cregs.C;
-
-            flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
-            flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
-
+            // Yes, no flags here
             cregs.PC += 1;
             break;
         }
 
         case 0x7b: // TDC - C <- D
         {
-            UpdateC(cregs.D);
+            cregs.C = cregs.D; // 16 bit transfer always
 
-            flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
-            flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
+            flags.N = cregs.C & 0x8000;
+            flags.Z = !(cregs.C);
 
             cregs.PC += 1;
             break;
@@ -2285,10 +2447,10 @@ public:
 
         case 0x3b: // TSC - C <- S
         {
-            UpdateC(cregs.S);
+            cregs.C = cregs.S; // 16 bit always
 
-            flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
-            flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
+            flags.N = cregs.C & 0x8000;
+            flags.Z = !(cregs.C);
 
             cregs.PC += 1;
             break;
@@ -2375,8 +2537,8 @@ public:
 
         case 0xa1: // LDA (dir,x)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::DirXPtr16);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2384,8 +2546,8 @@ public:
         }
         case 0xa3: // LDA stk,S
         {
-            add24 add = AddressingMode_STK(instAddress + 1);
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::STK);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2393,8 +2555,8 @@ public:
         }
         case 0xa5: // LDA dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::Dir);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2402,7 +2564,8 @@ public:
         }
         case 0xa7: // LDA  [dir]
         {
-            uint16 d = ReadM(AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)));
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             UpdateC(d);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2412,7 +2575,8 @@ public:
         }
         case 0xa9: // LDA imm
         {
-            uint16 imm = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadM();
             UpdateC(imm);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2422,7 +2586,8 @@ public:
         }
         case 0xad: // LDA abs
         {
-            uint16 d = ReadM(AddressingMode_Absolute(instAddress + 1));
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             UpdateC(d);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2432,8 +2597,8 @@ public:
         }
         case 0xaf: // LDA long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::Long);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 4;
@@ -2442,8 +2607,8 @@ public:
 
         case 0xb1: // LDA (dir),y
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2452,8 +2617,8 @@ public:
 
         case 0xb2: // LDA (dir)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::DirPtr16);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2462,8 +2627,8 @@ public:
 
         case 0xb3: // LDA (stk,S),y
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_STK(instAddress + 1)) + cregs.Y;
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2471,8 +2636,8 @@ public:
         }
         case 0xb5: // LDA dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::DirX);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2480,8 +2645,8 @@ public:
         }
         case 0xb7: // LDA [dir],y
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
@@ -2490,7 +2655,8 @@ public:
 
         case 0xb9: // LDA abs,y
         {
-            uint16 d = ReadM(AddressingMode_Absolute(instAddress + 1) + cregs.Y);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             UpdateC(d);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2500,7 +2666,8 @@ public:
         }
         case 0xbd: // LDA abs,x
         {
-            uint16 d = ReadM(AddressingMode_Absolute(instAddress + 1) + cregs.X);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             UpdateC(d);
 
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2510,8 +2677,8 @@ public:
         }
         case 0xbf: // LDA long,x
         {
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            UpdateC(ReadM(add));
+            ResolveAddress(AddressingMode::LongX);
+            UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 4;
@@ -2519,7 +2686,8 @@ public:
         }
         case 0xa2: // LDX imm
         {
-            uint16 imm = ReadX(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadX();
 
             UpdateX(imm);
 
@@ -2530,8 +2698,8 @@ public:
         }
         case 0xa6: // LDX dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            UpdateX(ReadX(add));
+            ResolveAddress(AddressingMode::Dir);
+            UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
@@ -2539,8 +2707,8 @@ public:
         }
         case 0xae: // LDX abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            UpdateX(ReadX(abs));
+            ResolveAddress(AddressingMode::Abs);
+            UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
@@ -2549,8 +2717,8 @@ public:
 
         case 0xb6: // LDX dir,y
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.Y;
-            UpdateX(ReadX(add));
+            ResolveAddress(AddressingMode::DirY);
+            UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
@@ -2559,8 +2727,8 @@ public:
 
         case 0xbe: // LDX abs,y
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            UpdateX(ReadX(abs));
+            ResolveAddress(AddressingMode::AbsY);
+            UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
@@ -2569,7 +2737,8 @@ public:
 
         case 0xa0: // LDY imm
         {
-            uint16 imm = ReadX(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadX();
 
             UpdateY(imm);
 
@@ -2581,8 +2750,8 @@ public:
 
         case 0xa4: // LDY dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            UpdateY(ReadX(add));
+            ResolveAddress(AddressingMode::Dir);
+            UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
@@ -2591,8 +2760,8 @@ public:
 
         case 0xac: // LDY abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            UpdateY(ReadX(abs));
+            ResolveAddress(AddressingMode::Abs);
+            UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
@@ -2600,8 +2769,8 @@ public:
         }
         case 0xb4: // LDY dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            UpdateY(ReadX(add));
+            ResolveAddress(AddressingMode::DirX);
+            UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
@@ -2609,8 +2778,8 @@ public:
         }
         case 0xbc: // LDY abs,x
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            UpdateY(ReadX(abs));
+            ResolveAddress(AddressingMode::AbsX);
+            UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
@@ -2620,8 +2789,8 @@ public:
         case 0x81: // STA (dir,x)
         {
 
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2630,8 +2799,8 @@ public:
         case 0x83: // STA stk,s
         {
 
-            add24 add = AddressingMode_STK(instAddress + 1);
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::STK);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2639,8 +2808,8 @@ public:
         case 0x85: // STA dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::Dir);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2648,40 +2817,41 @@ public:
         case 0x87: // STA [dir]
         {
 
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::DirPtr24);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
         }
         case 0x8d: // STA abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteM(abs, cregs.C);
+            ResolveAddress(AddressingMode::Abs);
+            WriteM(cregs.C);
             cregs.PC += 3;
             break;
         }
         case 0x8f: // STA long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::Long);
+      
+            WriteM(cregs.C);
             cregs.PC += 4;
             break;
         }
         case 0x91: // STA (dir),y
         {
 
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
         }
         case 0x92: // STA (dir)
         {
-
-            add24 add = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::DirPtr16);
+        
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2689,8 +2859,8 @@ public:
         case 0x93: // STA (stk,s),y
         {
 
-            add24 add = AddressingMode_16PTR(AddressingMode_STK(instAddress + 1)) + cregs.Y;
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2698,8 +2868,8 @@ public:
         case 0x95: // STA dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            WriteM(add, cregs.C);
+           ResolveAddress(AddressingMode::DirX);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2707,32 +2877,32 @@ public:
         case 0x97: // STA [dir],y
         {
 
-            add24 add = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
             break;
         }
         case 0x99: // STA abs,y
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteM(abs + cregs.Y, cregs.C);
+            ResolveAddress(AddressingMode::AbsY);
+            WriteM(cregs.C);
             cregs.PC += 3;
             break;
         }
 
         case 0x9d: // STA abs,x
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteM(abs + cregs.X, cregs.C);
+            ResolveAddress(AddressingMode::AbsX);
+            WriteM(cregs.C);
             cregs.PC += 3;
             break;
         }
 
         case 0x9f: // STA long,x
         {
-            add24 add = AddressingMode_Long(instAddress + 1) + cregs.X;
-            WriteM(add, cregs.C);
+            ResolveAddress(AddressingMode::LongX);
+            WriteM(cregs.C);
             cregs.PC += 4;
             break;
         }
@@ -2740,24 +2910,24 @@ public:
         case 0x86: // STX dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            WriteX(add, cregs.X);
+           ResolveAddress(AddressingMode::Dir);
+            WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
             break;
         }
         case 0x8e: // STX abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteX(abs, cregs.X);
+            ResolveAddress(AddressingMode::Abs);
+            WriteX(cregs.X);
             cregs.PC += 3;
             break;
         }
         case 0x96: // STX dir,y
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.Y;
-            WriteX(add, cregs.X);
+            ResolveAddress(AddressingMode::DirY);
+            WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2766,8 +2936,8 @@ public:
         case 0x84: // STY dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            WriteX(add, cregs.Y);
+            ResolveAddress(AddressingMode::Dir);
+            WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2775,8 +2945,8 @@ public:
 
         case 0x8c: // STY abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteX(abs, cregs.Y);
+            ResolveAddress(AddressingMode::Abs);
+            WriteX(cregs.Y);
             cregs.PC += 3;
             break;
         }
@@ -2784,8 +2954,8 @@ public:
         case 0x94: // STY dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            WriteX(add, cregs.Y);
+            ResolveAddress(AddressingMode::DirX);
+            WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2794,8 +2964,8 @@ public:
         case 0x64: // STZ dir
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            WriteM(add, 0);
+            ResolveAddress(AddressingMode::Dir);
+            WriteM(0);
             // No Flags
             cregs.PC += 2;
             break;
@@ -2803,23 +2973,23 @@ public:
         case 0x74: // STZ dir,x
         {
 
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            WriteM(add, 0);
+            ResolveAddress(AddressingMode::DirX);
+            WriteM(0);
             // No Flags
             cregs.PC += 2;
             break;
         }
         case 0x9c: // STZ abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            WriteM(abs, 0);
+            ResolveAddress(AddressingMode::Abs);
+            WriteM(0);
             cregs.PC += 3;
             break;
         }
         case 0x9e: // STZ abs,x
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            WriteM(abs, 0);
+            ResolveAddress(AddressingMode::AbsX);
+            WriteM(0);
             cregs.PC += 3;
             break;
         }
@@ -2829,8 +2999,8 @@ public:
         case 0xc1: // CMP (dir,x)
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1) + cregs.X);
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirXPtr16);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2842,8 +3012,8 @@ public:
         case 0xc3: // CMP stk,s
         {
             // TODO : Check 8 bit operation
-            add24 abs = ReadByte(instAddress + 1) + cregs.S;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::STK);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2855,8 +3025,8 @@ public:
         case 0xc5: // CMP dir
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2868,8 +3038,8 @@ public:
         case 0xc7: // CMP [dir]
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirPtr24);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2880,7 +3050,8 @@ public:
         }
         case 0xc9: // CMP imm
         {
-            uint16 imm = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadM();
 
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= imm;
             imm = cregs.C - imm;
@@ -2894,8 +3065,8 @@ public:
         case 0xcd: // CMP abs
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2907,8 +3078,8 @@ public:
         case 0xcf: // CMP long
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Long(instAddress + 1);
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::Long);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2920,8 +3091,8 @@ public:
         case 0xd1: // CMP (dir),y
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirPtr16Y);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2933,8 +3104,8 @@ public:
         case 0xd2: // CMP (dir)
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_16PTR(AddressingMode_Direct(instAddress + 1));
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirPtr16);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2946,8 +3117,8 @@ public:
         case 0xd3: // CMP (stk,s),y
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_16PTR(ReadByte(instAddress + 1) + cregs.S) + cregs.Y;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::STKPtr16Y);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2959,8 +3130,8 @@ public:
         case 0xd5: // CMP dir,x
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2972,8 +3143,8 @@ public:
         case 0xd7: // CMP [dir],y
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_24PTR(AddressingMode_Direct(instAddress + 1)) + cregs.Y;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::DirPtr24Y);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2985,8 +3156,8 @@ public:
         case 0xd9: // CMP abs,y
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Absolute(instAddress + 1) + cregs.Y;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::AbsY);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -2998,8 +3169,8 @@ public:
         case 0xdd: // CMP abs,x
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -3011,8 +3182,8 @@ public:
         case 0xdf: // CMP long,x
         {
             // TODO : Check 8 bit operation
-            add24 abs = AddressingMode_Long(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(abs);
+            ResolveAddress(AddressingMode::LongX);
+            uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.C - d;
@@ -3023,7 +3194,8 @@ public:
         }
         case 0xe0: // CPX imm
         {
-            uint16 imm = ReadX(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadX();
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= imm;
 
             imm = cregs.X - imm;
@@ -3035,8 +3207,8 @@ public:
         }
         case 0xe4: // CPX dir
         {
-            add24 abs = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadX(abs);
+           ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadX();
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.X - d;
             flags.N = d & (flags.X ? 0x0080 : 0x8000);
@@ -3047,8 +3219,8 @@ public:
         }
         case 0xec: // CPX abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadX(abs);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadX();
             // cout << "CPX " << hex << cregs.X << " , " << d << endl;
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.X - d;
@@ -3062,7 +3234,8 @@ public:
 
         case 0xc0: // CPY imm
         {
-            uint16 imm = ReadX(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= imm;
             imm = cregs.Y - imm;
             flags.N = imm & (flags.X ? 0x0080 : 0x8000);
@@ -3073,8 +3246,8 @@ public:
         }
         case 0xc4: // CPY dir
         {
-            add24 abs = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadX(abs);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.Y - d;
             flags.N = d & (flags.X ? 0x0080 : 0x8000);
@@ -3085,8 +3258,8 @@ public:
         }
         case 0xcc: // CPY abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadX(abs);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.Y - d;
             flags.N = d & (flags.X ? 0x0080 : 0x8000);
@@ -3097,8 +3270,8 @@ public:
         }
         case 0x24: // BIT dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             // cout << "BIT : " << hex << cregs.C << " , " << d << endl;
 
             uint16 t = cregs.C & d;
@@ -3110,8 +3283,8 @@ public:
         }
         case 0x2c: // BIT abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             // cout << "BIT : " << hex << cregs.C << " , " << d << endl;
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3122,8 +3295,8 @@ public:
         }
         case 0x34: // BIT dir,x
         {
-            add24 add = AddressingMode_Direct(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::DirX);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
@@ -3133,8 +3306,8 @@ public:
         }
         case 0x3c: // BIT abs,x
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1) + cregs.X;
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::AbsX);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF)); // THE AND NOT THE ARGUMENT!!
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
@@ -3144,7 +3317,8 @@ public:
         }
         case 0x89: // BIT imm
         {
-            uint16 imm = ReadM(instAddress + 1);
+            ResolveAddress(AddressingMode::Imm);
+            uint16 imm = ReadM();
             uint16 t = cregs.C & imm;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
@@ -3153,48 +3327,48 @@ public:
 
         case 0x14: // TRB dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             d = d & (~cregs.C);
-            WriteM(add, d);
+            WriteM(d);
 
             cregs.PC += 2;
             break;
         }
         case 0x1c: // TRB abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             d = d & (~cregs.C);
-            WriteM(add, d);
+            WriteM(d);
 
             cregs.PC += 3;
             break;
         }
         case 0x04: // TSB dir
         {
-            add24 add = AddressingMode_Direct(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Dir);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             d = d | cregs.C;
-            WriteM(add, d);
+            WriteM(d);
 
             cregs.PC += 2;
             break;
         }
         case 0x0c: // TSB abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            uint16 d = ReadM(add);
+            ResolveAddress(AddressingMode::Abs);
+            uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             d = d | cregs.C;
-            WriteM(add, d);
+            WriteM(d);
 
             cregs.PC += 3;
             break;
@@ -3205,7 +3379,8 @@ public:
 #pragma region Flow_Control
         case 0x90: // BCC
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (!flags.C)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3213,7 +3388,8 @@ public:
         }
         case 0xB0: // BCS
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (flags.C)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3221,7 +3397,8 @@ public:
         }
         case 0xd0: // BNE rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (!flags.Z)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3229,7 +3406,8 @@ public:
         }
         case 0x10: // BPL rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (!flags.N)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3237,13 +3415,15 @@ public:
         }
         case 0x80: // BRA rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             cregs.PC += 2 + ll;
             break;
         }
         case 0xf0: // BEQ rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (flags.Z)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3252,7 +3432,8 @@ public:
         }
         case 0x30: // BMI
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (flags.N)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3260,7 +3441,8 @@ public:
         }
         case 0x70: // BVS rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (flags.V)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3268,7 +3450,8 @@ public:
         }
         case 0x50: // BVC rel8
         {
-            signed char ll = ReadByte(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel8);
+            signed char ll = ReadByte(addL);
             if (!flags.V)
                 cregs.PC += ll;
             cregs.PC += 2;
@@ -3276,7 +3459,8 @@ public:
         }
         case 0x82: // BRL rel16
         {
-            signed short ll = ReadWord(instAddress + 1);
+            ResolveAddress(AddressingMode::Rel16);
+            signed short ll = ReadWord();
 
             cregs.PC += ll;
             cregs.PC += 3;
@@ -3285,68 +3469,71 @@ public:
 
         case 0x4c: // JMP abs
         {
-            add24 add = AddressingMode_Absolute(instAddress + 1);
-            cregs.PC = add & 0x00FFFF;
+             ResolveAddress(AddressingMode::Abs);
+            cregs.PC = addL & 0x00FFFF;
             break;
         }
 
         case 0x5c: // JMP long
         {
-            add24 add = AddressingMode_Long(instAddress + 1);
-            cregs.PC = add & 0x00FFFF;
-            cregs.K = (add & 0xFF0000) >> 16;
+             ResolveAddress(AddressingMode::Long);
+            cregs.PC = addL & 0x00FFFF;
+            cregs.K = (addL & 0xFF0000) >> 16;
             break;
         }
 
         case 0x6c: // JMP (abs)
         {
-            add24 add = AddressingMode_16PTR(AddressingMode_Absolute(instAddress + 1, true));
-            cregs.PC = add & 0x00FFFF;
+            ResolveAddress(AddressingMode::AbsPtr16);
+            cregs.PC = addL & 0x00FFFF;
             break;
         }
 
         case 0x20: // JSR abs
         {
-            add24 abs = AddressingMode_Absolute(instAddress + 1, true);
+            ResolveAddress(AddressingMode::Abs);
+     
             // push PC+2 to stack
             PushWord(cregs.PC + 2);
             // No Flags
-            cregs.PC = abs;
+            cregs.PC = addL;
             break;
         }
         case 0xfc: // JSR (abs,x)
         {
             // This case also needs K in addressing the address
-            add24 abs = AddressingMode_16PTR((cregs.K << 16) | (AddressingMode_Absolute(instAddress + 1, true) + cregs.X));
+            ResolveAddress(AddressingMode::AbsXPtr16);
             // push PC+2 to stack
             PushWord(cregs.PC + 2);
             // cout << "wow" << endl;
             // cin.get();
             //  No Flags
-            cregs.PC = abs;
+            cregs.PC = addL;
+           
             break;
         }
         case 0x22: // JSL long
         {
+            ResolveAddress(AddressingMode::Long);
             Push(cregs.K);
             PushWord(cregs.PC + 3);
-            cregs.PC = ReadWord(instAddress + 1);
-            cregs.K = ReadByte(instAddress + 3);
+            cregs.PC = addL;
+            cregs.K = addL >> 16;
             break;
         }
         case 0x7c: // JMP (abs,x)
         {
             // This case also needs K in addressing the address
-            add24 add = AddressingMode_16PTR((cregs.K << 16) | (AddressingMode_Absolute(instAddress + 1, true) + cregs.X));
-            cregs.PC = add;
+            ResolveAddress(AddressingMode::AbsXPtr16);
+            cregs.PC = addL;
             // No Flags
             break;
         }
         case 0xdc: // JMP [abs]
         {
-            add24 add = AddressingMode_24PTR(AddressingMode_Absolute(instAddress + 1, true));
-            cregs.PC = add & 0x00FFFF;
-            cregs.K = (add & 0xFF0000) >> 16;
+            ResolveAddress(AddressingMode::AbsPtr24);
+            cregs.PC = addL & 0x00FFFF;
+            cregs.K = (addL & 0xFF0000) >> 16;
             break;
         }
         case 0x60: // RTS
@@ -3373,8 +3560,8 @@ public:
 
         case 0x44: // MVP
         {
-            add24 srcB = ReadByte(instAddress + 2) << 16;
-            add24 dstB = ReadByte(instAddress + 1) << 16;
+            add24 srcB = ReadByte(PCByteAhead(2)) << 16;
+            add24 dstB = ReadByte(PCByteAhead(1)) << 16;
             add24 src, dest;
             if (cregs.C != 0xFFFF)
             {
@@ -3385,7 +3572,7 @@ public:
                 cregs.Y -= 1;
                 cregs.C -= 1;
             }
-            cregs.DBR = ReadByte(instAddress + 1); // DBR = dest bank
+            cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
 
             if (cregs.C == 0xFFFF)
                 cregs.PC += 3;
@@ -3400,7 +3587,7 @@ public:
             {
                 src = srcB | cregs.X;
                 dest = dstB | cregs.Y;
-                //cout << "MVN : " << hex << src << " --> " << dest << " : " << hex << (uint16)ReadByte(src) << endl;
+                // cout << "MVN : " << hex << src << " --> " << dest << " : " << hex << (uint16)ReadByte(src) << endl;
                 WriteByte(dest, ReadByte(src));
                 cregs.X += 1;
                 cregs.Y += 1;
@@ -3417,6 +3604,17 @@ public:
         default:
             opcodeNotFound = true;
             break;
+        }
+        if (flagE) // Emulation Constrains
+        {
+            cregs.S.H = 0x01;
+            flags.X = 1;
+            flags.M = 1;
+        }
+        if (flags.X)
+        {
+            cregs.X.H = 0;
+            cregs.Y.H = 0;
         }
 
         if (opcodeNotFound)
