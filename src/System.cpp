@@ -51,8 +51,9 @@ uint8 BusAccess(add24 address, uint8 data, bool rd);
 
 unsigned int vblanktimer = 1;
 
-bool vBlankInt = false;
-bool hBlankInt = false;
+bool cpuVBlankIntLatch = false;
+bool cpuHBlankIntLatch = false;
+bool vBlankEntryMoment = false;
 bool hdmaRan = true;
 
 // GUI
@@ -122,7 +123,7 @@ void emu()
         }
 
         // This should later be event based, set to 1 when vBlank becomes 1 and to 0 when vBlank becomes 0
-        if (vBlankInt)
+        if (cpuVBlankIntLatch)
         {
             RDNMI = 0b10000000;
             // dma->HDMAEN = 0; //Reset the HDMAEN at the end of each frame.
@@ -162,14 +163,13 @@ void emu()
                 break;
             }
 
-            if (vBlankInt)
+            if (cpuVBlankIntLatch)
             {
                 // entering Vblank
-
                 if (NMITIMEN & 0b10000000) // NMI is enabled
                 {
-
                     cpu->invokeNMI();
+                    cpuVBlankIntLatch = false;
                 }
             }
             if (emuStep % (160*6) == 0)
@@ -187,7 +187,7 @@ void emu()
                 cpu->cpuStep();
             }
         }
-        if (vBlankInt)
+        if (vBlankEntryMoment)
         {
             for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
             {
@@ -229,25 +229,28 @@ void emu()
 
         if(emuStep % 17 == 0)
             APU::Step();
-        ctrlsys->step();
 
-        vBlankInt = false;
-        hBlankInt = false;
+        // ctrl is read 
+        if(emuStep % 92321 == 0)
+            ctrlsys->step();
+
+        vBlankEntryMoment = false;
         if (emuStep % 80 == 0)
         {
 
-            ppu->step(); // every 341*262*4 = 89342*4 steps => 1 frame
+            ppu->step(); // every 341*262 = 89342 steps => 1 frame
             if (ppu->hCounter == 0 && ppu->vCounter == 225)
             {
 
-                vBlankInt = true;
+                cpuVBlankIntLatch = true;
+                vBlankEntryMoment = true;
                 runVBlank = false;
             }
             if (ppu->hCounter == 256)
             {
                 // Start of hblank
                 hdmaRan = false;
-                hBlankInt = true;
+                cpuHBlankIntLatch = true;
                 runHBlank = false;
             }
             if (ppu->hCounter == 0 && ppu->vCounter == 0)
