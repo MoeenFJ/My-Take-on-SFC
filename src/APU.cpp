@@ -1,123 +1,264 @@
 #include <bits/stdc++.h>
+#include "SPC700.cpp"
 using namespace std;
 
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int add24;
 
-class APU
+namespace APU
 {
-    //The Following is AI generated, for now.
-public:
-    // Step 1: Signal ready. Port 0 = $AA, Port 1 = $BB
-    uint8 out_ports[4] = {0xAA, 0xBB, 0x00, 0x00};
-    uint8 in_ports[4]  = {0x00, 0x00, 0x00, 0x00};
-    
-    // Memory to hold the actual uploaded audio program
-    uint8 spc_ram[65536] = {0}; 
-
-    // The IPL State Machine
-    enum IplState {
-        STATE_WAIT_CC,    // Step 2
-        STATE_WAIT_ZERO,  // Step 7
-        STATE_TRANSFER    // Step 8
+    uint8 aram[64 * 1024] = {0};
+    uint8 arom[] = {
+        0xCD, 0xEF,
+        0xBD,
+        0xE8, 0x00,
+        0xC6,
+        0x1D,
+        0xD0, 0xFC,
+        0x8F, 0xAA, 0xF4,
+        0x8F, 0xBB, 0xF5,
+        0x78, 0xCC, 0xF4,
+        0xD0, 0xFB,
+        0x2F, 0x19,
+        0xEB, 0xF4,
+        0xD0, 0xFC,
+        0x7E, 0xF4,
+        0xD0, 0x0B,
+        0xE4, 0xF5,
+        0xCB, 0xF4,
+        0xD7, 0x00,
+        0xFC,
+        0xD0, 0xF3,
+        0xAB, 0x01,
+        0x10, 0xEF,
+        0x7E, 0xF4,
+        0x10, 0xEB,
+        0xBA, 0xF6,
+        0xDA, 0x00,
+        0xBA, 0xF4,
+        0xC4, 0XF4,
+        0xDD,
+        0x5D,
+        0xD0, 0xDB,
+        0x1F, 0x00, 0x00,
+        0xC0, 0xFF
     };
-    
-    IplState state = STATE_WAIT_CC;
-    uint16 dest_addr = 0;
-    uint8 expected_counter = 0;
 
-    uint8 IORead(add24 address)
+    SPC700 *spc;
+
+    uint8 APUIO0;
+    uint8 APUIO1;
+    uint8 APUIO2;
+    uint8 APUIO3;
+
+    bool ramRomSel = 1;
+
+    uint8 SPCRead(uint16 address)
     {
-        if (address >= 0x2140 && address <= 0x2143) {
-            return out_ports[address - 0x2140];
-        }
-        return 0x00;
-    }
+        if (address <= 0x00EF) // RAM 0000 to 00EF
+            return aram[address];
+        else if (address <= 0x00FF) // IO 00F0 to 00FF
+        {
+            switch (address & 0x000F)
+            {
+            case 0x0: // Test
+                break;
+            case 0x1: // CONTROL
+                break;
+            case 0x2: // DSPADDR
+                break;
+            case 0x3: // DSPDATA
+                break;
+            case 0x4: // CPUIO0
+                return APUIO0;
+                break;
+            case 0x5: // CPUIO1
+                return APUIO1;
+                break;
+            case 0x6: // CPUIO2
+                return APUIO2;
+                break;
+            case 0x7: // CPUIO3
+                return APUIO3;
+                break;
+            case 0x8: // AUXIO4 (unused)
+                break;
+            case 0x9: // AUXIO5 (unused)
+                break;
+            case 0xa: // T0DIV
+                break;
+            case 0xb: // T1DIV
+                break;
+            case 0xc: // T2DIV
+                break;
+            case 0xd: // T0OUT
+                break;
+            case 0xe: // T1OUT
+                break;
+            case 0xf: // T2OUT
+                break;
 
-    void IOWrite(add24 address, uint8 data)
-    {
-        if (address >= 0x2140 && address <= 0x2143) {
-            int port = address - 0x2140;
-            in_ports[port] = data;
-
-            // The IPL heavily relies on Port 0 as the command/sync port
-            if (port == 0) {
-                switch (state) {
-                    case STATE_WAIT_CC:
-                        // Step 2: Loop until $CC is read from port 0.
-                        // (This inherently ignores the $FF spam from your first screenshot)
-                        if (data == 0xCC) {
-                            process_new_block(data);
-                        }
-                        break;
-
-                    case STATE_WAIT_ZERO:
-                        // Step 7: Loop until read port 0 reads 0.
-                        if (data == 0x00) {
-                            expected_counter = 0; // Set 8-bit counter to 0
-                            do_transfer_cycle(data); // Proceed to step 8
-                        }
-                        break;
-
-                    case STATE_TRANSFER:
-                        // Step 8: Transfer Loop
-                        if (data == expected_counter) {
-                            // "Wait until port 0 reads equal to the new counter, and repeat"
-                            do_transfer_cycle(data);
-                        } 
-                        else {
-                            // "If port 0 reads greater than the new counter..."
-                            // Any out-of-sequence value triggers the end of the block.
-                            // "...write back port 0 to acknowledge, transfer ends and return to step 4."
-                            process_new_block(data);
-                        }
-                        break;
-                }
+            default:
+                break;
             }
         }
+        else if (address <= 0x01FF) // RAM 0100 to 01FF
+            return aram[address];
+        else if (address <= 0xFFBF) // RAM 0200 to 0FFBF
+            return aram[address];
+        else // RAM or ROM FFC0 to FFFF based on reg 0x00F1
+        {
+            if(ramRomSel)
+                return arom[address-0xFFC0];
+            else
+                return aram[address];
+        }
+    }
+    void SPCWrite(uint16 address, uint8 data)
+    {
+         if (address <= 0x00EF) // RAM 0000 to 00EF
+            aram[address] = data;
+        else if (address <= 0x00FF) // IO 00F0 to 00FF
+        {
+            switch (address & 0x000F)
+            {
+            case 0x0: // Test
+                break;
+            case 0x1: // CONTROL
+                ramRomSel = data & 0b10000000;
+                break;
+            case 0x2: // DSPADDR
+                break;
+            case 0x3: // DSPDATA
+                break;
+            case 0x4: // CPUIO0
+                APUIO0= data;
+                break;
+            case 0x5: // CPUIO1
+                APUIO1 = data;
+                break;
+            case 0x6: // CPUIO2
+                APUIO2 = data;
+                break;
+            case 0x7: // CPUIO3
+                APUIO3 = data;
+                break;
+            case 0x8: // AUXIO4 (unused)
+                break;
+            case 0x9: // AUXIO5 (unused)
+                break;
+            case 0xa: // T0DIV
+                break;
+            case 0xb: // T1DIV
+                break;
+            case 0xc: // T2DIV
+                break;
+            case 0xd: // T0OUT
+                break;
+            case 0xe: // T1OUT
+                break;
+            case 0xf: // T2OUT
+                break;
+
+            default:
+                break;
+            }
+            aram[address] = data;
+        }
+        else if (address <= 0x01FF) // RAM 0100 to 01FF
+            aram[address] = data;
+        else if (address <= 0xFFBF) // RAM 0200 to 0FFBF
+            aram[address] = data;
+        else // Write always goes to ram
+            aram[address] = data;
     }
 
-    void step()
+    void Init()
     {
-        // No step logic needed! The event-driven state machine in IOWrite
-        // instantly satisfies the SNES CPU's wait loops.
+        ramRomSel = 1;
+        spc = new SPC700(SPCRead, SPCWrite);
+        spc->Reset();
     }
 
-private:
-    // Handles Steps 4, 5, and 6
-    void process_new_block(uint8 port0_data) 
+    void IOWrite(uint16 port, uint8 data)
     {
-        // Step 4: Read a 2 byte address from port 2 and 3
-        dest_addr = in_ports[2] | (in_ports[3] << 8);
-        
-        // Step 5: Acknowledge (write value read from port 0 back to port 0)
-        out_ports[0] = port0_data;
-        
-        // Step 6: Begin
-        if (in_ports[1] == 0) {
-            // "if 0 begin executing code at address"
-            // For now, we just reset the state. A full emulator might boot the SPC700 CPU here.
-            state = STATE_WAIT_CC; 
-        } else {
-            // "otherwise begin reading data (step 7)"
-            state = STATE_WAIT_ZERO;
+        switch (port)
+        {
+        case 0x2140:
+            APUIO0 = data;
+            break;
+
+        case 0x2141:
+            APUIO1 = data;
+            break;
+
+        case 0x2142:
+            APUIO2 = data;
+            break;
+
+        case 0x2143:
+            APUIO3 = data;
+            break;
+
+        default:
+            break;
         }
     }
 
-    // Handles the repetitive part of Step 8
-    void do_transfer_cycle(uint8 port0_data) 
+    uint8 IORead(uint16 port)
     {
-        // "Read a byte from port 1 and write to the destination address."
-        spc_ram[dest_addr] = in_ports[1];
-        
-        // "Write the value read from port 0 to port 0 to acknowledge receipt"
-        out_ports[0] = port0_data;
-        
-        // "Increment the destination address, and increment the 8-bit counter"
-        dest_addr++;
-        expected_counter++; // This will naturally wrap 255 -> 0, mimicking 8-bit math
-        
-        state = STATE_TRANSFER;
+        switch (port)
+        {
+        case 0x2140:
+            return APUIO0;
+            break;
+
+        case 0x2141:
+            return APUIO1;
+            break;
+
+        case 0x2142:
+            return APUIO2;
+            break;
+
+        case 0x2143:
+            return APUIO3;
+            break;
+
+        default:
+            break;
+        }
+    }
+
+
+
+    // Timing:
+    // APU clock LCM = 24*128 = 3072
+    // So the APU step counter must reset at a multiple of 3072
+    // Biggest Multiple of 3072 that fits in 32 bits, is 1398101 * 3072
+    uint16 cpuClkCnt = 0;
+    uint32_t stepCnt= 0;
+    void Step()
+    {
+        //1 SPC clock per 24 APU clock.
+        if(stepCnt%24==0)
+            cpuClkCnt++;
+
+
+        if(spc->cycles < cpuClkCnt)
+            spc->Step();
+        if(spc->cycles > 60000 && cpuClkCnt > 60000)
+        {
+            cpuClkCnt -= 60000;
+            spc->cycles -= 60000;
+        }
+
+        //Update step counter
+        stepCnt++;
+        if(stepCnt == 3072 * 1398101)
+        {
+            stepCnt = 0;
+        }
     }
 };

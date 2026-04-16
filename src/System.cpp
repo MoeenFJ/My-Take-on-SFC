@@ -17,7 +17,6 @@ typedef unsigned int add24;
 
 Cartridge *rom;
 CPU *cpu;
-APU *apu;
 PPU *ppu;
 DMA *dma;
 MDUnit *mdu;
@@ -97,16 +96,21 @@ void DumpRam()
 
     outFile.close();
 }
-uint64_t masterClk = 0;
+
+
+//Every 20 steps is 1 masterClk
+uint64_t emuStep = 0;
 void emu()
 {
     cpu->reset();
     ppu->reset();
+    APU::Init();
     VTIMEL = 0xff;
     VTIMEH = 0x01;
     HTIMEL = 0xff;
     HTIMEH = 0x01;
     RDNMI = RDNMI & 0x7F;
+
 
     while (true) // Emulation Loop
     {
@@ -168,17 +172,15 @@ void emu()
                     cpu->invokeNMI();
                 }
             }
-            if (masterClk % 48 == 0)
+            if (emuStep % (160*6) == 0)
             {
                 runInst = false;
                 if (debug)
                 {
-                    cout << "step : " << dec << masterClk << endl;
                     cpu->printStatus();
                 }
                 if (cpuTrace)
                 {
-                    cpuTraceFile << dec << "step : " << masterClk << endl;
                     cpuTraceFile << cpu->stringStatus() << endl;
                 }
 
@@ -187,7 +189,6 @@ void emu()
         }
         if (vBlankInt)
         {
-            // DumpVRam();
             for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
             {
                 for (int x = 0; x < WIN_WIDTH; x++)
@@ -214,29 +215,10 @@ void emu()
             mfb_set_title(window, to_string(ppu->frameCount).c_str());
             mfb_wait_sync(window);
 
-            if (debug)
-            {
-                cout << endl;
-                cout << "=-=-=-=-=-=Frame Update=-=-=-=-=-=-=" << endl;
-                cout << "BG Mode : " << dec << (uint16)ppu->mode << endl;
-
-                cout << "BG1BaseAddr : " << hex << ppu->BG1BaseAddr << endl;
-                cout << "BG1ChrsBaseAddr : " << hex << ppu->BG1ChrsBaseAddr << endl;
-                cout << "BG1SCSize : " << hex << (uint16)ppu->BG1SCSize << endl;
-                cout << "BG1Scroll : (" << dec << ppu->BG1HScroll << "," << ppu->BG1VScroll << ")" << endl;
-
-                cout << "BG2BaseAddr : " << hex << ppu->BG2BaseAddr << endl;
-                cout << "BG2ChrsBaseAddr : " << hex << ppu->BG2ChrsBaseAddr << endl;
-                cout << "BG2SCSize : " << hex << (uint16)ppu->BG2SCSize << endl;
-                cout << "BG2Scroll : (" << dec << ppu->BG2HScroll << "," << ppu->BG2VScroll << ")" << endl;
-
-                cout << "OBJChrTable1BaseAddr : " << hex << ppu->OBJChrTable1BaseAddr << endl;
-                cout << "OBJChrTable2BaseAddr : " << hex << ppu->OBJChrTable2BaseAddr << endl;
-                cout << endl;
-            }
+           
         }
 
-        if (masterClk)
+        if (emuStep % 160 == 0)
         {
             dma->step(!hdmaRan);
             if (!hdmaRan)
@@ -245,11 +227,13 @@ void emu()
             }
         }
 
-        apu->step(); // Totally dummy for now
+        if(emuStep % 17 == 0)
+            APU::Step();
         ctrlsys->step();
+
         vBlankInt = false;
         hBlankInt = false;
-        if (masterClk % 4 == 0)
+        if (emuStep % 80 == 0)
         {
 
             ppu->step(); // every 341*262*4 = 89342*4 steps => 1 frame
@@ -273,7 +257,7 @@ void emu()
             }
         }
 
-        masterClk++;
+        emuStep++;
         runStep = false;
     }
 }
@@ -281,7 +265,7 @@ void emu()
 void exitEmu()
 {
     cpuTraceFile.close();
-    
+
     stringstream ss;
     ss << rom->title << ".srm";
 
@@ -623,7 +607,7 @@ void WriteIO(add24 address, uint8 data)
     }
     else if (port >= 0x2140 && port <= 0x2143) // APU
     {
-        apu->IOWrite(port, data);
+        APU::IOWrite(port, data);
         return;
     }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
@@ -735,7 +719,7 @@ uint8 ReadIO(add24 address)
     }
     else if (port >= 0x2140 && port <= 0x2143) // APU
     {
-        return apu->IORead(port);
+        return APU::IORead(port);
     }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
     {
@@ -1047,7 +1031,7 @@ int main(int argc, char *argv[])
     sramFile.close();
 
     cpu = new CPU(C65Read, C65Write);
-    apu = new APU();
+  
     ppu = new PPU();
     dma = new DMA(DMARead, DMAWrite);
     mdu = new MDUnit();

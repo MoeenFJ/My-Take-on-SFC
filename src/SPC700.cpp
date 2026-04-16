@@ -77,7 +77,7 @@ public:
 
 // I really didn't want to go through audio, but every game needs it, so here we go.
 
-enum SPC700AddressingMode
+enum class SPC700AddressingMode
 {
     Imm = 0,
 
@@ -117,63 +117,63 @@ class SPC700
 
         switch (mode)
         {
-        case Imm:
+        case SPC700AddressingMode::Imm:
             addL = PC + 1;
             break;
 
-        case XPtr:
+        case SPC700AddressingMode::XPtr:
             addL = X | (flags.P ? 0x0100 : 0x0000);
             break;
 
-        case YPtr:
+        case SPC700AddressingMode::YPtr:
             addL = Y | (flags.P ? 0x0100 : 0x0000);
             break;
 
-        case DP:
+        case SPC700AddressingMode::DP:
             addL = ll | (flags.P ? 0x0100 : 0x0000);
             addH = ((ll + 1) & 0x00FF) | (flags.P ? 0x0100 : 0x0000);
             break;
 
-        case DPX:
+        case SPC700AddressingMode::DPX:
             addL = ((uint8)(ll + X)) | (flags.P ? 0x0100 : 0x0000);
             addH = hh;
             break;
-        case DPY:
+        case SPC700AddressingMode::DPY:
             addL = ((uint8)(ll + Y)) | (flags.P ? 0x0100 : 0x0000);
             break;
 
-        case Abs:
+        case SPC700AddressingMode::Abs:
             addL = (hh << 8) | ll;
             break;
 
-        case AbsX:
+        case SPC700AddressingMode::AbsX:
             addL = ((hh << 8) | ll) + X;
             addH = ((hh << 8) | ll) + X + 1;
             break;
 
-        case AbsY:
+        case SPC700AddressingMode::AbsY:
             addL = ((hh << 8) | ll) + Y;
             break;
 
-        case DPXPtr:
+        case SPC700AddressingMode::DPXPtr:
             addL = ((uint8)(ll + X)) | (flags.P ? 0x0100 : 0x0000);
             addH = ((uint8)(ll + X + 1)) | (flags.P ? 0x0100 : 0x0000);
             addL = (ReadByte(addH) << 8) | ReadByte(addL);
             break;
 
-        case DPPtrY:
+        case SPC700AddressingMode::DPPtrY:
             addL = ((uint8)(ll)) | (flags.P ? 0x0100 : 0x0000);
             addH = ((uint8)(ll + 1)) | (flags.P ? 0x0100 : 0x0000);
             addL = (ReadByte(addH) << 8) | ReadByte(addL);
             addL += Y;
             break;
 
-        case SrcDst:
+        case SPC700AddressingMode::SrcDst:
             addL = ll | (flags.P ? 0x0100 : 0x0000);
             addH = hh | (flags.P ? 0x0100 : 0x0000);
             break;
 
-        case MemBit:
+        case SPC700AddressingMode::MemBit:
             addL = (ll) | ((hh & 0x1F) << 8);
             addH = (hh & 0xE0) >> 5;
             break;
@@ -252,7 +252,7 @@ public:
     uint8 SP;
     SPCFlagsRegister flags;
 
-    uint8 cycles;
+    uint16 cycles;
 
     SPC700(SPC700ReadByteFunc_t rf, SPC700WriteByteFunc_t wf)
     {

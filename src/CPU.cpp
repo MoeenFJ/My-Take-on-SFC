@@ -156,7 +156,7 @@ struct CPURegisters
 using C65ReadByteFunc_t = uint8 (*)(add24);
 using C65WriteByteFunc_t = void (*)(add24, uint8);
 
-enum AddressingMode
+enum class CPUAddressingMode
 {
     Abs = 0,
     AbsX = 1,
@@ -228,7 +228,7 @@ public:
     }
 
     add24 addL, addH, addXH;
-    void ResolveAddress(AddressingMode mode)
+    void ResolveAddress(CPUAddressingMode mode)
     {
         uint8 ll, hh, xh;
         ll = ReadByte(PCByteAhead(1));
@@ -238,15 +238,15 @@ public:
         // Phase one
         switch (mode)
         {
-        case Rel8:
-        case Rel16:
-        case Imm:
+        case CPUAddressingMode::Rel8:
+        case CPUAddressingMode::Rel16:
+        case CPUAddressingMode::Imm:
             addL = PCByteAhead(1);
             addH = PCByteAhead(2);
             break;
 
-        case AbsPtr16:
-        case AbsPtr24:
+        case CPUAddressingMode::AbsPtr16:
+        case CPUAddressingMode::AbsPtr24:
             addL = (hh << 8) | ll;
             addH = addL + 1;
             addH &= 0x00FFFF;
@@ -254,13 +254,13 @@ public:
             addXH &= 0x00FFFF;
             break;
 
-        case Abs:
+        case CPUAddressingMode::Abs:
             addL = (cregs.DBR << 16) | (hh << 8) | ll;
             addH = addL + 1;
             addXH = addL + 2;
             break;
 
-        case AbsXPtr16:
+        case CPUAddressingMode::AbsXPtr16:
             addL = (hh << 8) | ll;
             addL += cregs.X;
 
@@ -272,56 +272,56 @@ public:
             addH |= cregs.K << 16;
             break;
 
-        case AbsX:
+        case CPUAddressingMode::AbsX:
             addL = (cregs.DBR << 16) | (hh << 8) | ll;
             addL += cregs.X;
             addH = addL + 1;
             addXH = addL + 2;
             break;
 
-        case AbsY:
+        case CPUAddressingMode::AbsY:
             addL = (cregs.DBR << 16) | (hh << 8) | ll;
             addL += cregs.Y;
             addH = addL + 1;
             addXH = addL + 2;
             break;
 
-        case DirPtr16:
-        case DirPtr24:
-        case DirPtr24Y:
-        case DirPtr16Y:
-        case Dir:
+        case CPUAddressingMode::DirPtr16:
+        case CPUAddressingMode::DirPtr24:
+        case CPUAddressingMode::DirPtr24Y:
+        case CPUAddressingMode::DirPtr16Y:
+        case CPUAddressingMode::Dir:
             addL = (cregs.D + ll) & 0x00FFFF;
             addH = (cregs.D + ll + 1) & 0x00FFFF;
             addXH = (cregs.D + ll + 2) & 0x00FFFF;
             break;
 
-        case DirXPtr16:
-        case DirX:
+        case CPUAddressingMode::DirXPtr16:
+        case CPUAddressingMode::DirX:
             addL = (cregs.D + ll + cregs.X) & 0x00FFFF;
             addH = (cregs.D + ll + cregs.X + 1) & 0x00FFFF;
             addXH = (cregs.D + ll + cregs.X + 2) & 0x00FFFF;
             break;
 
-        case DirY:
+        case CPUAddressingMode::DirY:
             addL = (cregs.D + ll + cregs.Y) & 0x00FFFF;
             addH = (cregs.D + ll + cregs.Y + 1) & 0x00FFFF;
             addXH = (cregs.D + ll + cregs.Y + 2) & 0x00FFFF;
             break;
 
-        case Long:
+        case CPUAddressingMode::Long:
             addL = (xh << 16) | (hh << 8) | (ll);
             addH = addL + 1;
             break;
 
-        case LongX:
+        case CPUAddressingMode::LongX:
             addL = (xh << 16) | (hh << 8) | (ll);
             addL += cregs.X;
             addH = addL + 1;
             break;
 
-        case STKPtr16Y:
-        case STK:
+        case CPUAddressingMode::STKPtr16Y:
+        case CPUAddressingMode::STK:
             addL = (ll + cregs.S) & 0x00FFFF;
             addH = (ll + cregs.S + 1) & 0x00FFFF;
             break;
@@ -331,22 +331,22 @@ public:
 
         switch (mode)
         {
-        case AbsXPtr16:
-        case AbsPtr16:
+        case CPUAddressingMode::AbsXPtr16:
+        case CPUAddressingMode::AbsPtr16:
             addL = (cregs.K << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
             break;
 
-        case DirPtr16:
-        case DirXPtr16:
-        case DirPtr16Y:
-        case STKPtr16Y:
+        case CPUAddressingMode::DirPtr16:
+        case CPUAddressingMode::DirXPtr16:
+        case CPUAddressingMode::DirPtr16Y:
+        case CPUAddressingMode::STKPtr16Y:
             addL = (cregs.DBR << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
             addH = addL + 1;
             break;
 
-        case AbsPtr24:
-        case DirPtr24:
-        case DirPtr24Y:
+        case CPUAddressingMode::AbsPtr24:
+        case CPUAddressingMode::DirPtr24:
+        case CPUAddressingMode::DirPtr24Y:
             addL = (ReadByte(addXH) << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
             addH = addL + 1;
 
@@ -356,9 +356,9 @@ public:
 
         switch (mode)
         {
-        case DirPtr16Y:
-        case DirPtr24Y:
-        case STKPtr16Y:
+        case CPUAddressingMode::DirPtr16Y:
+        case CPUAddressingMode::DirPtr24Y:
+        case CPUAddressingMode::STKPtr16Y:
             addL += cregs.Y;
             addH += cregs.Y;
             break;
@@ -926,7 +926,7 @@ public:
 
         case 0xc2: // REP imm - Reset selected Flags
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint8 imm = ReadByte(addL);
             flags.ResetMask(imm);
             cregs.PC += 2;
@@ -934,7 +934,7 @@ public:
         }
         case 0xe2: // SEP imm - Set selected Flags
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint8 imm = ReadByte(addL);
             flags.SetMask(imm);
             cregs.PC += 2;
@@ -1082,7 +1082,7 @@ public:
         case 0xf4: // PEA
         {
 
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             PushWord(ReadWord());
             cregs.PC += 3;
             break;
@@ -1090,14 +1090,14 @@ public:
         case 0xd4: // PEI
         {
             // TODO : exception in address resolve
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             PushWord(ReadWord()); // Or ReadM?
             cregs.PC += 2;
             break;
         }
         case 0x62: // PER
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             signed short imm = ReadWord();
             PushWord(instAddress + 3 + imm);
             cregs.PC += 3;
@@ -1111,7 +1111,7 @@ public:
         case 0x61: // ADC (dir,x)
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1120,7 +1120,7 @@ public:
         case 0x63: // ADC stk,S
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1129,7 +1129,7 @@ public:
         case 0x65: // ADC dir
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1138,7 +1138,7 @@ public:
         case 0x67: // ADC [dir]
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1148,7 +1148,7 @@ public:
         {
             // TODO : BCD for D flag
             // cin.get();
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
 
             uint16 imm = ReadM();
             doADC(imm);
@@ -1160,7 +1160,7 @@ public:
         case 0x6d: // ADC abs
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
@@ -1170,7 +1170,7 @@ public:
         case 0x6f: // ADC long
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
@@ -1179,7 +1179,7 @@ public:
         case 0x71: // ADC (dir),y
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1189,7 +1189,7 @@ public:
         case 0x72: // ADC (dir)
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1198,7 +1198,7 @@ public:
         case 0x73: // ADC (stk,s),y
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1207,7 +1207,7 @@ public:
         case 0x75: // ADC dir,x
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1216,7 +1216,7 @@ public:
         case 0x77: // ADC [dir],y
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
@@ -1226,7 +1226,7 @@ public:
         case 0x79: // ADC abs,y
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
@@ -1236,7 +1236,7 @@ public:
         case 0x7d: // ADC abs,x
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
@@ -1246,7 +1246,7 @@ public:
         case 0x7f: // ADC long,x
         {
             // TODO : BCD for D flag
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
@@ -1256,7 +1256,7 @@ public:
         case 0xe1: // SBC (dir,x)
         {
 
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1265,7 +1265,7 @@ public:
         case 0xe3: // SBC stk,S
         {
 
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1275,7 +1275,7 @@ public:
         case 0xe5: // SBC dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1285,7 +1285,7 @@ public:
         case 0xe7: // SBC [dir]
         {
 
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1294,7 +1294,7 @@ public:
 
         case 0xe9: // SBC imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadM();
             doSBC(imm);
             cregs.PC += 3 - flags.M;
@@ -1304,7 +1304,7 @@ public:
         case 0xed: // SBC abs
         {
 
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
@@ -1313,7 +1313,7 @@ public:
         case 0xef: // SBC long
         {
 
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
@@ -1322,7 +1322,7 @@ public:
         case 0xf1: // SBC (dir),y
         {
 
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1330,7 +1330,7 @@ public:
         }
         case 0xf2: // SBC (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1339,7 +1339,7 @@ public:
         case 0xf3: // SBC (stk,S),y
         {
 
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1348,7 +1348,7 @@ public:
         case 0xf5: // SBC dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1357,7 +1357,7 @@ public:
         case 0xf7: // SBC [dir],y
         {
 
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
@@ -1366,7 +1366,7 @@ public:
         case 0xf9: // SBC abs,y
         {
 
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
@@ -1375,7 +1375,7 @@ public:
         case 0xfd: // SBC abs,x
         {
 
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
@@ -1384,7 +1384,7 @@ public:
         case 0xff: // SBC long,x
         {
 
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
@@ -1402,7 +1402,7 @@ public:
         }
         case 0xc6: // DEC dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             d -= 1;
             WriteM(d);
@@ -1414,7 +1414,7 @@ public:
         }
         case 0xce: // DEC abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             d -= 1;
             WriteM(d);
@@ -1426,7 +1426,7 @@ public:
         }
         case 0xd6: // DEC dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             d -= 1;
             WriteM(d);
@@ -1438,7 +1438,7 @@ public:
         }
         case 0xde: // DEC abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             d -= 1;
             WriteM(d);
@@ -1479,7 +1479,7 @@ public:
 
         case 0xe6: // INC dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             d += 1;
             WriteM(d);
@@ -1491,7 +1491,7 @@ public:
         }
         case 0xee: // INC abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             d += 1;
             WriteM(d);
@@ -1503,7 +1503,7 @@ public:
         }
         case 0xf6: // INC dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             d += 1;
             WriteM(d);
@@ -1515,7 +1515,7 @@ public:
         }
         case 0xfe: // INC abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             d += 1;
             WriteM(d);
@@ -1549,7 +1549,7 @@ public:
 #pragma region Bitwise_Arithmatics
         case 0x21: // AND (dir,x)
         {
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1560,7 +1560,7 @@ public:
         }
         case 0x23: // AND stk,S
         {
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1570,7 +1570,7 @@ public:
         }
         case 0x25: // AND dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1580,7 +1580,7 @@ public:
         }
         case 0x27: // AND [dir]
         {
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1590,7 +1590,7 @@ public:
         }
         case 0x29: // AND imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1600,7 +1600,7 @@ public:
         }
         case 0x2d: // AND abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1610,7 +1610,7 @@ public:
         }
         case 0x2f: // AND long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1621,7 +1621,7 @@ public:
 
         case 0x31: // AND (dir),y
         {
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1632,7 +1632,7 @@ public:
 
         case 0x32: // AND (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1643,7 +1643,7 @@ public:
 
         case 0x33: // AND (stks,S),y
         {
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1654,7 +1654,7 @@ public:
 
         case 0x35: // AND dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1664,7 +1664,7 @@ public:
         }
         case 0x37: // AND [dir],y
         {
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1675,7 +1675,7 @@ public:
 
         case 0x39: // AND abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1686,7 +1686,7 @@ public:
         }
         case 0x3d: // AND abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1698,7 +1698,7 @@ public:
 
         case 0x3f: // AND long,x
         {
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1710,7 +1710,7 @@ public:
         // EORS
         case 0x41: // EOR (dir,x)
         {
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1720,7 +1720,7 @@ public:
         }
         case 0x43: // EOR stk,S
         {
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1730,7 +1730,7 @@ public:
         }
         case 0x45: // EOR dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1740,7 +1740,7 @@ public:
         }
         case 0x47: // EOR [dir]
         {
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1750,7 +1750,7 @@ public:
         }
         case 0x49: // EOR imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1760,7 +1760,7 @@ public:
         }
         case 0x4d: // EOR abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1770,7 +1770,7 @@ public:
         }
         case 0x4f: // EOR long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1781,7 +1781,7 @@ public:
 
         case 0x51: // EOR (dir),y
         {
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1792,7 +1792,7 @@ public:
 
         case 0x52: // EOR (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1803,7 +1803,7 @@ public:
 
         case 0x53: // EOR (stks,S),y
         {
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1814,7 +1814,7 @@ public:
 
         case 0x55: // EOR dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1824,7 +1824,7 @@ public:
         }
         case 0x57: // EOR [dir],y
         {
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1835,7 +1835,7 @@ public:
 
         case 0x59: // EOR abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1845,7 +1845,7 @@ public:
         }
         case 0x5d: // EOR abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1856,7 +1856,7 @@ public:
 
         case 0x5f: // EOR long,x
         {
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             UpdateC(cregs.C ^ d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1868,7 +1868,7 @@ public:
         // ORAs
         case 0x01: // ORA (dir,x)
         {
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1878,7 +1878,7 @@ public:
         }
         case 0x03: // ORA stk,S
         {
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1888,7 +1888,7 @@ public:
         }
         case 0x05: // ORA dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1898,7 +1898,7 @@ public:
         }
         case 0x07: // ORA [dir]
         {
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1908,7 +1908,7 @@ public:
         }
         case 0x09: // ORA imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1918,7 +1918,7 @@ public:
         }
         case 0x0d: // ORA abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1928,7 +1928,7 @@ public:
         }
         case 0x0f: // ORA long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1939,7 +1939,7 @@ public:
 
         case 0x11: // ORA (dir),y
         {
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1950,7 +1950,7 @@ public:
 
         case 0x12: // ORA (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1961,7 +1961,7 @@ public:
 
         case 0x13: // ORA (stks,S),y
         {
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1972,7 +1972,7 @@ public:
 
         case 0x15: // ORA dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1982,7 +1982,7 @@ public:
         }
         case 0x17: // ORA [dir],y
         {
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -1993,7 +1993,7 @@ public:
 
         case 0x19: // ORA abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2003,7 +2003,7 @@ public:
         }
         case 0x1d: // ORA abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2014,7 +2014,7 @@ public:
 
         case 0x1f: // ORA long,x
         {
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             UpdateC(cregs.C | d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2025,7 +2025,7 @@ public:
 
         case 0x06: // ASL dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 t = ReadM();
             if (flags.M)
             {
@@ -2064,7 +2064,7 @@ public:
         }
         case 0x0e: // ASL abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 t = ReadM();
             if (flags.M)
             {
@@ -2086,7 +2086,7 @@ public:
 
         case 0x16: // ASL dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 t = ReadM();
             if (flags.M)
             {
@@ -2108,7 +2108,7 @@ public:
 
         case 0x1e: // ASL abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 t = ReadM();
             if (flags.M)
             {
@@ -2130,7 +2130,7 @@ public:
 
         case 0x46: // LSR dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
@@ -2158,7 +2158,7 @@ public:
 
         case 0x4e: // LSR abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
@@ -2171,7 +2171,7 @@ public:
 
         case 0x56: // LSR dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
@@ -2184,7 +2184,7 @@ public:
 
         case 0x5e: // LSR abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 t = ReadM();
             flags.C = t & 0x0001;
             t = t >> 1;
@@ -2198,7 +2198,7 @@ public:
         case 0x26: // ROL dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
@@ -2244,7 +2244,7 @@ public:
         case 0x2e: // ROL abs
         {
 
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
@@ -2267,7 +2267,7 @@ public:
         case 0x36: // ROL dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
@@ -2290,7 +2290,7 @@ public:
         case 0x3e: // ROL abs,x
         {
 
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 t = ReadM();
             bool c = flags.C;
             if (flags.M)
@@ -2313,7 +2313,7 @@ public:
         case 0x66: // ROR dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
@@ -2353,7 +2353,7 @@ public:
         case 0x6e: // ROR abs
         {
 
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
@@ -2370,7 +2370,7 @@ public:
         case 0x76: // ROR dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
@@ -2387,7 +2387,7 @@ public:
         case 0x7e: // ROR abs,x
         {
 
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 t = ReadM();
             bool c = flags.C;
             flags.C = t & 0x0001;
@@ -2536,7 +2536,7 @@ public:
 
         case 0xa1: // LDA (dir,x)
         {
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2545,7 +2545,7 @@ public:
         }
         case 0xa3: // LDA stk,S
         {
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2554,7 +2554,7 @@ public:
         }
         case 0xa5: // LDA dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2563,7 +2563,7 @@ public:
         }
         case 0xa7: // LDA  [dir]
         {
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             UpdateC(d);
 
@@ -2574,7 +2574,7 @@ public:
         }
         case 0xa9: // LDA imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadM();
             UpdateC(imm);
 
@@ -2585,7 +2585,7 @@ public:
         }
         case 0xad: // LDA abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             UpdateC(d);
 
@@ -2596,7 +2596,7 @@ public:
         }
         case 0xaf: // LDA long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2606,7 +2606,7 @@ public:
 
         case 0xb1: // LDA (dir),y
         {
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2616,7 +2616,7 @@ public:
 
         case 0xb2: // LDA (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2626,7 +2626,7 @@ public:
 
         case 0xb3: // LDA (stk,S),y
         {
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2635,7 +2635,7 @@ public:
         }
         case 0xb5: // LDA dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2644,7 +2644,7 @@ public:
         }
         case 0xb7: // LDA [dir],y
         {
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2654,7 +2654,7 @@ public:
 
         case 0xb9: // LDA abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             UpdateC(d);
 
@@ -2665,7 +2665,7 @@ public:
         }
         case 0xbd: // LDA abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             UpdateC(d);
 
@@ -2676,7 +2676,7 @@ public:
         }
         case 0xbf: // LDA long,x
         {
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             UpdateC(ReadM());
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
@@ -2685,7 +2685,7 @@ public:
         }
         case 0xa2: // LDX imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadX();
 
             UpdateX(imm);
@@ -2697,7 +2697,7 @@ public:
         }
         case 0xa6: // LDX dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
@@ -2706,7 +2706,7 @@ public:
         }
         case 0xae: // LDX abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
@@ -2716,7 +2716,7 @@ public:
 
         case 0xb6: // LDX dir,y
         {
-            ResolveAddress(AddressingMode::DirY);
+            ResolveAddress(CPUAddressingMode::DirY);
             UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
@@ -2726,7 +2726,7 @@ public:
 
         case 0xbe: // LDX abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             UpdateX(ReadX());
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
@@ -2736,7 +2736,7 @@ public:
 
         case 0xa0: // LDY imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadX();
 
             UpdateY(imm);
@@ -2749,7 +2749,7 @@ public:
 
         case 0xa4: // LDY dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
@@ -2759,7 +2759,7 @@ public:
 
         case 0xac: // LDY abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
@@ -2768,7 +2768,7 @@ public:
         }
         case 0xb4: // LDY dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
@@ -2777,7 +2777,7 @@ public:
         }
         case 0xbc: // LDY abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             UpdateY(ReadX());
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
@@ -2788,7 +2788,7 @@ public:
         case 0x81: // STA (dir,x)
         {
 
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2798,7 +2798,7 @@ public:
         case 0x83: // STA stk,s
         {
 
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2807,7 +2807,7 @@ public:
         case 0x85: // STA dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2816,7 +2816,7 @@ public:
         case 0x87: // STA [dir]
         {
 
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2824,14 +2824,14 @@ public:
         }
         case 0x8d: // STA abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             WriteM(cregs.C);
             cregs.PC += 3;
             break;
         }
         case 0x8f: // STA long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
 
             WriteM(cregs.C);
             cregs.PC += 4;
@@ -2840,7 +2840,7 @@ public:
         case 0x91: // STA (dir),y
         {
 
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2848,7 +2848,7 @@ public:
         }
         case 0x92: // STA (dir)
         {
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
 
             WriteM(cregs.C);
             // No Flags
@@ -2858,7 +2858,7 @@ public:
         case 0x93: // STA (stk,s),y
         {
 
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2867,7 +2867,7 @@ public:
         case 0x95: // STA dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2876,7 +2876,7 @@ public:
         case 0x97: // STA [dir],y
         {
 
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2884,7 +2884,7 @@ public:
         }
         case 0x99: // STA abs,y
         {
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             WriteM(cregs.C);
             cregs.PC += 3;
             break;
@@ -2892,7 +2892,7 @@ public:
 
         case 0x9d: // STA abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             WriteM(cregs.C);
             cregs.PC += 3;
             break;
@@ -2900,7 +2900,7 @@ public:
 
         case 0x9f: // STA long,x
         {
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             WriteM(cregs.C);
             cregs.PC += 4;
             break;
@@ -2909,7 +2909,7 @@ public:
         case 0x86: // STX dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
@@ -2917,7 +2917,7 @@ public:
         }
         case 0x8e: // STX abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             WriteX(cregs.X);
             cregs.PC += 3;
             break;
@@ -2925,7 +2925,7 @@ public:
         case 0x96: // STX dir,y
         {
 
-            ResolveAddress(AddressingMode::DirY);
+            ResolveAddress(CPUAddressingMode::DirY);
             WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
@@ -2935,7 +2935,7 @@ public:
         case 0x84: // STY dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
@@ -2944,7 +2944,7 @@ public:
 
         case 0x8c: // STY abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             WriteX(cregs.Y);
             cregs.PC += 3;
             break;
@@ -2953,7 +2953,7 @@ public:
         case 0x94: // STY dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
@@ -2963,7 +2963,7 @@ public:
         case 0x64: // STZ dir
         {
 
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             WriteM(0);
             // No Flags
             cregs.PC += 2;
@@ -2972,7 +2972,7 @@ public:
         case 0x74: // STZ dir,x
         {
 
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             WriteM(0);
             // No Flags
             cregs.PC += 2;
@@ -2980,14 +2980,14 @@ public:
         }
         case 0x9c: // STZ abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             WriteM(0);
             cregs.PC += 3;
             break;
         }
         case 0x9e: // STZ abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             WriteM(0);
             cregs.PC += 3;
             break;
@@ -2998,7 +2998,7 @@ public:
         case 0xc1: // CMP (dir,x)
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirXPtr16);
+            ResolveAddress(CPUAddressingMode::DirXPtr16);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3011,7 +3011,7 @@ public:
         case 0xc3: // CMP stk,s
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::STK);
+            ResolveAddress(CPUAddressingMode::STK);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3024,7 +3024,7 @@ public:
         case 0xc5: // CMP dir
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3037,7 +3037,7 @@ public:
         case 0xc7: // CMP [dir]
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirPtr24);
+            ResolveAddress(CPUAddressingMode::DirPtr24);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3049,7 +3049,7 @@ public:
         }
         case 0xc9: // CMP imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadM();
 
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= imm;
@@ -3064,7 +3064,7 @@ public:
         case 0xcd: // CMP abs
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3077,7 +3077,7 @@ public:
         case 0xcf: // CMP long
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3090,7 +3090,7 @@ public:
         case 0xd1: // CMP (dir),y
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirPtr16Y);
+            ResolveAddress(CPUAddressingMode::DirPtr16Y);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3103,7 +3103,7 @@ public:
         case 0xd2: // CMP (dir)
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(CPUAddressingMode::DirPtr16);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3116,7 +3116,7 @@ public:
         case 0xd3: // CMP (stk,s),y
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::STKPtr16Y);
+            ResolveAddress(CPUAddressingMode::STKPtr16Y);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3129,7 +3129,7 @@ public:
         case 0xd5: // CMP dir,x
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3142,7 +3142,7 @@ public:
         case 0xd7: // CMP [dir],y
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::DirPtr24Y);
+            ResolveAddress(CPUAddressingMode::DirPtr24Y);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3155,7 +3155,7 @@ public:
         case 0xd9: // CMP abs,y
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::AbsY);
+            ResolveAddress(CPUAddressingMode::AbsY);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3168,7 +3168,7 @@ public:
         case 0xdd: // CMP abs,x
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3181,7 +3181,7 @@ public:
         case 0xdf: // CMP long,x
         {
             // TODO : Check 8 bit operation
-            ResolveAddress(AddressingMode::LongX);
+            ResolveAddress(CPUAddressingMode::LongX);
             uint16 d = ReadM();
             // cout << "CMP : " << std::hex << d << " " << cregs.C << endl;
             flags.C = (cregs.C & (flags.M ? 0x00FF : 0xFFFF)) >= d;
@@ -3193,7 +3193,7 @@ public:
         }
         case 0xe0: // CPX imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadX();
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= imm;
 
@@ -3206,7 +3206,7 @@ public:
         }
         case 0xe4: // CPX dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadX();
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.X - d;
@@ -3218,7 +3218,7 @@ public:
         }
         case 0xec: // CPX abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadX();
             // cout << "CPX " << hex << cregs.X << " , " << d << endl;
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= d;
@@ -3233,7 +3233,7 @@ public:
 
         case 0xc0: // CPY imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= imm;
             imm = cregs.Y - imm;
@@ -3245,7 +3245,7 @@ public:
         }
         case 0xc4: // CPY dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.Y - d;
@@ -3257,7 +3257,7 @@ public:
         }
         case 0xcc: // CPY abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadX();
             flags.C = (cregs.Y & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.Y - d;
@@ -3269,7 +3269,7 @@ public:
         }
         case 0x24: // BIT dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             // cout << "BIT : " << hex << cregs.C << " , " << d << endl;
 
@@ -3282,7 +3282,7 @@ public:
         }
         case 0x2c: // BIT abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             // cout << "BIT : " << hex << cregs.C << " , " << d << endl;
             uint16 t = cregs.C & d;
@@ -3294,7 +3294,7 @@ public:
         }
         case 0x34: // BIT dir,x
         {
-            ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(CPUAddressingMode::DirX);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3305,7 +3305,7 @@ public:
         }
         case 0x3c: // BIT abs,x
         {
-            ResolveAddress(AddressingMode::AbsX);
+            ResolveAddress(CPUAddressingMode::AbsX);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF)); // THE AND NOT THE ARGUMENT!!
@@ -3316,7 +3316,7 @@ public:
         }
         case 0x89: // BIT imm
         {
-            ResolveAddress(AddressingMode::Imm);
+            ResolveAddress(CPUAddressingMode::Imm);
             uint16 imm = ReadM();
             uint16 t = cregs.C & imm;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3326,7 +3326,7 @@ public:
 
         case 0x14: // TRB dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3338,7 +3338,7 @@ public:
         }
         case 0x1c: // TRB abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3350,7 +3350,7 @@ public:
         }
         case 0x04: // TSB dir
         {
-            ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(CPUAddressingMode::Dir);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3362,7 +3362,7 @@ public:
         }
         case 0x0c: // TSB abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             uint16 d = ReadM();
             uint16 t = cregs.C & d;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
@@ -3378,7 +3378,7 @@ public:
 #pragma region Flow_Control
         case 0x90: // BCC
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (!flags.C)
                 cregs.PC += ll;
@@ -3387,7 +3387,7 @@ public:
         }
         case 0xB0: // BCS
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (flags.C)
                 cregs.PC += ll;
@@ -3396,7 +3396,7 @@ public:
         }
         case 0xd0: // BNE rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (!flags.Z)
                 cregs.PC += ll;
@@ -3405,7 +3405,7 @@ public:
         }
         case 0x10: // BPL rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (!flags.N)
                 cregs.PC += ll;
@@ -3414,14 +3414,14 @@ public:
         }
         case 0x80: // BRA rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             cregs.PC += 2 + ll;
             break;
         }
         case 0xf0: // BEQ rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (flags.Z)
                 cregs.PC += ll;
@@ -3431,7 +3431,7 @@ public:
         }
         case 0x30: // BMI
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (flags.N)
                 cregs.PC += ll;
@@ -3440,7 +3440,7 @@ public:
         }
         case 0x70: // BVS rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (flags.V)
                 cregs.PC += ll;
@@ -3449,7 +3449,7 @@ public:
         }
         case 0x50: // BVC rel8
         {
-            ResolveAddress(AddressingMode::Rel8);
+            ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             if (!flags.V)
                 cregs.PC += ll;
@@ -3458,7 +3458,7 @@ public:
         }
         case 0x82: // BRL rel16
         {
-            ResolveAddress(AddressingMode::Rel16);
+            ResolveAddress(CPUAddressingMode::Rel16);
             signed short ll = ReadWord();
 
             cregs.PC += ll;
@@ -3468,14 +3468,14 @@ public:
 
         case 0x4c: // JMP abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
             cregs.PC = addL & 0x00FFFF;
             break;
         }
 
         case 0x5c: // JMP long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             cregs.PC = addL & 0x00FFFF;
             cregs.K = (addL & 0xFF0000) >> 16;
             break;
@@ -3483,14 +3483,14 @@ public:
 
         case 0x6c: // JMP (abs)
         {
-            ResolveAddress(AddressingMode::AbsPtr16);
+            ResolveAddress(CPUAddressingMode::AbsPtr16);
             cregs.PC = addL & 0x00FFFF;
             break;
         }
 
         case 0x20: // JSR abs
         {
-            ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(CPUAddressingMode::Abs);
 
             // push PC+2 to stack
             PushWord(cregs.PC + 2);
@@ -3501,7 +3501,7 @@ public:
         case 0xfc: // JSR (abs,x)
         {
             // This case also needs K in addressing the address
-            ResolveAddress(AddressingMode::AbsXPtr16);
+            ResolveAddress(CPUAddressingMode::AbsXPtr16);
             // push PC+2 to stack
             PushWord(cregs.PC + 2);
             // cout << "wow" << endl;
@@ -3513,7 +3513,7 @@ public:
         }
         case 0x22: // JSL long
         {
-            ResolveAddress(AddressingMode::Long);
+            ResolveAddress(CPUAddressingMode::Long);
             Push(cregs.K);
             PushWord(cregs.PC + 3);
             cregs.PC = addL;
@@ -3523,14 +3523,14 @@ public:
         case 0x7c: // JMP (abs,x)
         {
             // This case also needs K in addressing the address
-            ResolveAddress(AddressingMode::AbsXPtr16);
+            ResolveAddress(CPUAddressingMode::AbsXPtr16);
             cregs.PC = addL;
             // No Flags
             break;
         }
         case 0xdc: // JMP [abs]
         {
-            ResolveAddress(AddressingMode::AbsPtr24);
+            ResolveAddress(CPUAddressingMode::AbsPtr24);
             cregs.PC = addL & 0x00FFFF;
             cregs.K = (addL & 0xFF0000) >> 16;
             break;
