@@ -98,8 +98,7 @@ void DumpRam()
     outFile.close();
 }
 
-
-//Every 20 steps is 1 masterClk
+// Every 20 steps is 1 masterClk
 uint64_t emuStep = 0;
 void emu()
 {
@@ -112,7 +111,6 @@ void emu()
     HTIMEH = 0x01;
     RDNMI = RDNMI & 0x7F;
 
-
     while (true) // Emulation Loop
     {
 
@@ -122,19 +120,95 @@ void emu()
             continue;
         }
 
-        // This should later be event based, set to 1 when vBlank becomes 1 and to 0 when vBlank becomes 0
-        if (cpuVBlankIntLatch)
-        {
-            RDNMI = 0b10000000;
-            // dma->HDMAEN = 0; //Reset the HDMAEN at the end of each frame.
-        }
-        if (!ppu->vBlank)
-        {
-            RDNMI = 0b00000000;
-        }
-
         if (!dma->dmaActive)
         {
+
+            if (emuStep % (160 * 6) == 0)
+            {
+                runInst = false;
+                if (debug)
+                {
+                    cpu->printStatus();
+                }
+                if (cpuTrace)
+                {
+                    cpuTraceFile << cpu->stringStatus() << endl;
+                }
+
+                cpu->cpuStep();
+            }
+        }
+
+        if (emuStep % 160 == 0)
+        {
+            dma->step(!hdmaRan);
+            if (!hdmaRan)
+            {
+                hdmaRan = true;
+            }
+        }
+
+        if (emuStep % 17 == 0)
+            APU::Step();
+
+        // ctrl is read
+        if (emuStep % 160 == 0)
+            ctrlsys->step();
+
+        vBlankEntryMoment = false;
+        if (emuStep % 80 == 0)
+        {
+
+            ppu->step(); // every 341*262 = 89342 steps => 1 frame
+
+            if (ppu->hCounter == 0 && ppu->vCounter == 225) // Start of VBlank
+            {
+                dma->HDMAEN = 0;
+                vBlankEntryMoment = true;
+                runVBlank = false;
+                RDNMI = 0b10000000;
+                if (NMITIMEN & 0b10000000) // NMI is enabled
+                    cpu->invokeNMI();
+
+                for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
+                {
+                    for (int x = 0; x < WIN_WIDTH; x++)
+                    {
+                        window_fb[y * WIN_WIDTH + x] = ppu->fb[(y / (WIN_WIDTH / FB_WIDTH)) * FB_WIDTH + (x / (WIN_WIDTH / FB_WIDTH))];
+                    }
+                }
+                for (int y = FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y < (FB_HEIGHT + 1) * (WIN_WIDTH / FB_WIDTH); y++)
+                {
+                    for (int x = 0; x < WIN_WIDTH; x++)
+                    {
+
+                        uint16 col = ppu->cgram[x / (WIN_WIDTH / FB_WIDTH)];
+
+                        uint8 R = (col & 0b0000000000011111) << 3;
+                        uint8 G = (col & 0b0000001111100000) >> 2;
+                        uint8 B = (col & 0b0111110000000000) >> 7;
+
+                        window_fb[y * WIN_WIDTH + x] = MFB_ARGB(255, R, G, B);
+                    }
+                }
+
+                mfb_update_ex(window, window_fb, WIN_WIDTH, WIN_HEIGHT);
+                mfb_set_title(window, to_string(ppu->frameCount).c_str());
+                mfb_wait_sync(window);
+            }
+            if (ppu->vCounter == 261 && ppu->hCounter == 340) // End of VBlank
+            {
+                RDNMI = 0b00000000;
+            }
+            if (ppu->vCounter < 225 && ppu->hCounter == 256) // Start of HBlank
+            {
+                hdmaRan = false;
+                runHBlank = false;
+            }
+            if (ppu->hCounter == 0 && ppu->vCounter == 0) // Start of Frame
+            {
+                dma->initializeHDMA();
+            }
 
             // H-V Timer IRQ
             uint8 type = (NMITIMEN & 0b00110000) >> 4;
@@ -161,102 +235,6 @@ void emu()
 
             default:
                 break;
-            }
-
-            if (cpuVBlankIntLatch)
-            {
-                // entering Vblank
-                if (NMITIMEN & 0b10000000) // NMI is enabled
-                {
-                    cpu->invokeNMI();
-                    cpuVBlankIntLatch = false;
-                }
-            }
-            if (emuStep % (160*6) == 0)
-            {
-                runInst = false;
-                if (debug)
-                {
-                    cpu->printStatus();
-                }
-                if (cpuTrace)
-                {
-                    cpuTraceFile << cpu->stringStatus() << endl;
-                }
-
-                cpu->cpuStep();
-            }
-        }
-        if (vBlankEntryMoment)
-        {
-            for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
-            {
-                for (int x = 0; x < WIN_WIDTH; x++)
-                {
-                    window_fb[y * WIN_WIDTH + x] = ppu->fb[(y / (WIN_WIDTH / FB_WIDTH)) * FB_WIDTH + (x / (WIN_WIDTH / FB_WIDTH))];
-                }
-            }
-            for (int y = FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y < (FB_HEIGHT + 1) * (WIN_WIDTH / FB_WIDTH); y++)
-            {
-                for (int x = 0; x < WIN_WIDTH; x++)
-                {
-
-                    uint16 col = ppu->cgram[x / (WIN_WIDTH / FB_WIDTH)];
-
-                    uint8 R = (col & 0b0000000000011111) << 3;
-                    uint8 G = (col & 0b0000001111100000) >> 2;
-                    uint8 B = (col & 0b0111110000000000) >> 7;
-
-                    window_fb[y * WIN_WIDTH + x] = MFB_ARGB(255, R, G, B);
-                }
-            }
-
-            mfb_update_ex(window, window_fb, WIN_WIDTH, WIN_HEIGHT);
-            mfb_set_title(window, to_string(ppu->frameCount).c_str());
-            mfb_wait_sync(window);
-
-           
-        }
-
-        if (emuStep % 160 == 0)
-        {
-            dma->step(!hdmaRan);
-            if (!hdmaRan)
-            {
-                hdmaRan = true;
-            }
-        }
-
-        if(emuStep % 17 == 0)
-            APU::Step();
-
-        // ctrl is read 
-        if(emuStep % 92321 == 0)
-            ctrlsys->step();
-
-        vBlankEntryMoment = false;
-        if (emuStep % 80 == 0)
-        {
-
-            ppu->step(); // every 341*262 = 89342 steps => 1 frame
-            if (ppu->hCounter == 0 && ppu->vCounter == 225)
-            {
-
-                cpuVBlankIntLatch = true;
-                vBlankEntryMoment = true;
-                runVBlank = false;
-            }
-            if (ppu->hCounter == 256)
-            {
-                // Start of hblank
-                hdmaRan = false;
-                cpuHBlankIntLatch = true;
-                runHBlank = false;
-            }
-            if (ppu->hCounter == 0 && ppu->vCounter == 0)
-            {
-                // Start of the frame
-                dma->initializeHDMA();
             }
         }
 
@@ -636,7 +614,7 @@ void WriteIO(add24 address, uint8 data)
         case 0x2180: // WMDATA
         {
             // TODO : check this later
-            add24 memAdd = 0x7E0000 &( WMADDH << 16 | WMADDM << 8 | WMADDL);
+            add24 memAdd = 0x7E0000 & (WMADDH << 16 | WMADDM << 8 | WMADDL);
             BusAccess(memAdd, data, false);
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
@@ -653,7 +631,7 @@ void WriteIO(add24 address, uint8 data)
             break;
         case 0x2183: // WMADDH
             WMADDH = data;
-            //WMADDH &= 0b00000001; // Make sure upper bits are 0 for later
+            // WMADDH &= 0b00000001; // Make sure upper bits are 0 for later
             break;
 
         case 0x4016: // LCTRLREG1, Manual controller 1
@@ -697,12 +675,12 @@ void WriteIO(add24 address, uint8 data)
             MEMSEL = data;
             break;
 
-        //Some games really like to write into read-only regs. so here they are
+        // Some games really like to write into read-only regs. so here they are
         default:
 
             cout << "Undefined IO Address " << hex << port << endl;
             zeroWire = data;
-            //pauseEmu = true;
+            // pauseEmu = true;
             break;
         }
     }
@@ -783,8 +761,6 @@ uint8 ReadIO(add24 address)
             break;
         }
 
-
-        
         default:
 
             cout << "Undefined IO Address " << hex << port << endl;
@@ -801,18 +777,18 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
 {
 
     // cout << "Translate Address : " << std::hex << address << endl;
-    
+
     if (rom->mapType == LoROM)
     {
         // Extract bank and offset for easier math
         uint8_t bank = (address >> 16) & 0xFF;
         uint16_t offset = address & 0xFFFF;
-        
+
         // 1. WRAM (Banks $7E and $7F)
         // This must be checked BEFORE we mirror the upper banks down.
         if (bank == 0x7E || bank == 0x7F)
         {
-            
+
             // Mask to 17 bits (128KB of WRAM)
             if (rd)
             {
@@ -851,7 +827,7 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
         {
             if (offset < 0x2000) // First 8KB mirrors WRAM
             {
-               
+
                 if (rd)
                     return *(ram + offset);
                 else
@@ -1015,7 +991,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-
     rom = new Cartridge(argv[1]);
 
     stringstream ss;
@@ -1023,18 +998,18 @@ int main(int argc, char *argv[])
     ifstream sramFile(ss.str(), std::ios::binary);
 
     bool sramExists = true;
-    if (!sramFile.is_open()) {
-        sramExists = false;
-
-    }
-    if(sramExists)
+    if (!sramFile.is_open())
     {
-        sramFile.read(reinterpret_cast<char*>(rom->sram), rom->sramSize);
+        sramExists = false;
+    }
+    if (sramExists)
+    {
+        sramFile.read(reinterpret_cast<char *>(rom->sram), rom->sramSize);
     }
     sramFile.close();
 
     cpu = new CPU(C65Read, C65Write);
-  
+
     ppu = new PPU();
     dma = new DMA(DMARead, DMAWrite);
     mdu = new MDUnit();

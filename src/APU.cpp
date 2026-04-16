@@ -52,6 +52,11 @@ namespace APU
     uint8 APUIO2;
     uint8 APUIO3;
 
+    uint8 CPUIO0;
+    uint8 CPUIO1;
+    uint8 CPUIO2;
+    uint8 CPUIO3;
+
     bool ramRomSel = 1;
 
     uint8 SPCRead(uint16 address)
@@ -133,16 +138,16 @@ namespace APU
             case 0x3: // DSPDATA
                 break;
             case 0x4: // CPUIO0
-                APUIO0= data;
+                CPUIO0= data;
                 break;
             case 0x5: // CPUIO1
-                APUIO1 = data;
+                CPUIO1 = data;
                 break;
             case 0x6: // CPUIO2
-                APUIO2 = data;
+                CPUIO2 = data;
                 break;
             case 0x7: // CPUIO3
-                APUIO3 = data;
+                CPUIO3 = data;
                 break;
             case 0x8: // AUXIO4 (unused)
                 break;
@@ -211,19 +216,19 @@ namespace APU
         switch (port)
         {
         case 0x2140:
-            return APUIO0;
+            return CPUIO0;
             break;
 
         case 0x2141:
-            return APUIO1;
+            return CPUIO1;
             break;
 
         case 0x2142:
-            return APUIO2;
+            return CPUIO2;
             break;
 
         case 0x2143:
-            return APUIO3;
+            return CPUIO3;
             break;
 
         default:
@@ -246,8 +251,11 @@ namespace APU
             cpuClkCnt++;
 
 
-        if(spc->cycles < cpuClkCnt)
+        if(spc->cycles < cpuClkCnt){
             spc->Step();
+            //spc->PrintState();
+        }
+
         if(spc->cycles > 60000 && cpuClkCnt > 60000)
         {
             cpuClkCnt -= 60000;
