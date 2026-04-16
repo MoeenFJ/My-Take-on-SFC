@@ -223,6 +223,9 @@ public:
     bool objAddSub = false;
     bool bdpAddSub = false;
 
+    uint16 constColor = 0;
+    bool constColorSel = 0;
+
     // Objs
     uint16 OBJChrTable1BaseAddr;
     uint16 OBJChrTable2BaseAddr;
@@ -410,8 +413,8 @@ public:
         case 0x2101: // OBJSEL
             objAvailSize = (data & 0b11100000) >> 5;
             OBJChrTable1BaseAddr = (data & 0b00000111) * 0x2000;
-            OBJChrTable2BaseAddr = OBJChrTable1BaseAddr + (((data >> 3) & 0x03)+1) * 0x1000;
-           
+            OBJChrTable2BaseAddr = OBJChrTable1BaseAddr + (((data >> 3) & 0x03) + 1) * 0x1000;
+
             break;
 
         case 0x2102: // OAMADDL
@@ -434,9 +437,9 @@ public:
             else // High
             {
                 oam[oamAddr] = (data) << 8 | (oam[oamAddr] & 0x00ff);
-            
+
                 oamAddr++;
-                
+
                 oamDataHL = false;
             }
             break;
@@ -783,7 +786,8 @@ public:
             this->regs.TSW = data;
             break;
         case 0x2130: // CGSWSEL
-            this->regs.CGSWSEL = data;
+            constColorSel = !(data & 0x02);
+            directColor = data & 0x01;
             break;
         case 0x2131: // CGADSUB
             bg1AddSub = data & 0b00000001;
@@ -797,8 +801,38 @@ public:
 
             break;
         case 0x2132: // COLDATA
-            this->regs.COLDATA = data;
+        {
+            uint8 col = data >> 5;
+            uint8 brt = data & 0b00011111;
+            switch (col)
+            {
+            case 0b111: // Black or white
+                constColor = brt | (brt << 5) | (brt << 10);
+                break;
+
+            // Red
+            case 0b110:
+            case 0b001:
+                constColor = brt;
+                break;
+
+            // Green
+            case 0b101:
+            case 0b010:
+                constColor = brt << 5;
+                break;
+
+            // Blue
+            case 0b011:
+            case 0b100:
+                constColor = brt << 10;
+                break;
+
+            default:
+                break;
+            }
             break;
+        }
         case 0x2133: // SETINI
             interlacing = data & 0x01;
             break;
@@ -882,7 +916,6 @@ public:
             uint8 ojbprior = 0;
 
             // Handle objects
-
             if (OBJonMainScreen || OBJonSubScreen)
             {
                 for (int i = 127; i >= 0; i--)
@@ -934,16 +967,14 @@ public:
                     bool vf = oam[(i << 1) + 1] & 0b1000000000000000;
                     bool hf = oam[(i << 1) + 1] & 0b0100000000000000;
 
-              
-
                     uint8 colorIdx = 0;
 
                     uint8 tileX = (hCounter - objX) >> 3;
                     uint8 tileY = (vCounter - objY) >> 3;
                     if (hf)
-                        tileX = ((objSize>>3)-1) - tileX;
+                        tileX = ((objSize >> 3) - 1) - tileX;
                     if (vf)
-                        tileY = ((objSize>>3)-1) - tileY;
+                        tileY = ((objSize >> 3) - 1) - tileY;
 
                     uint8 x = (hCounter - objX) & 0x07;
                     uint8 y = (vCounter - objY) & 0x07;
@@ -965,9 +996,7 @@ public:
 
                     colorIdx |= ((vram[objCharAddr + y + 8] >> (15 - x)) & 0x01) << 3;
 
-                    
-                    
-                    if (prior >= ojbprior && colorIdx !=0)
+                    if (prior >= ojbprior && colorIdx != 0)
                     {
                         ojbprior = prior;
                         objcol = cgram[0b10000000 | (pal << 4) | colorIdx];
@@ -975,6 +1004,7 @@ public:
                     }
                 }
             }
+
             if ((BG1onMainScreen || BG1onSubScreen) && mode <= 6) // BG1 conditions
             {
 
@@ -1403,73 +1433,79 @@ public:
                 }
             }
 
-            bg1col = ((uint32_t)bg1col + (bg1AddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-            bg2col = ((uint32_t)bg2col + (bg2AddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-            bg3col = ((uint32_t)bg3col + (bg3AddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-            bg4col = ((uint32_t)bg4col + (bg4AddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-            objcol = ((uint32_t)objcol + (objAddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-            scol = ((uint32_t)scol + (bdpAddSub ? (addSub ? -subScreenCol : subScreenCol) : 0)) >> (addSubHalf?1:0);
-
-            // uint16 addsubBG1 = ;
-            uint16 addsubBG2 = subScreenCol;
+            uint8 selectedLayer = 0;
             // Priority checking
             if (mode == 0 || mode == 1)
             {
                 if (BG3onMainScreen && bg3opaque && bg3PriorMode && bg3prior)
                 {
                     mainScreenCol = bg3col;
+                    selectedLayer = 3;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 3)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG1onMainScreen && bg1opaque && bg1prior)
                 {
                     mainScreenCol = bg1col;
+                    selectedLayer = 1;
                 }
                 else if (BG2onMainScreen && bg2opaque && bg2prior)
                 {
                     mainScreenCol = bg2col;
+                    selectedLayer = 2;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 2)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG1onMainScreen && bg1opaque)
                 {
                     mainScreenCol = bg1col;
+                    selectedLayer = 1;
                 }
                 else if (BG2onMainScreen && bg2opaque)
                 {
                     mainScreenCol = bg2col;
+                    selectedLayer = 2;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 1)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG3onMainScreen && bg3opaque && bg3prior)
                 {
                     mainScreenCol = bg3col;
+                    selectedLayer = 3;
                 }
                 else if (BG4onMainScreen && bg4opaque && bg4prior)
                 {
                     mainScreenCol = bg4col;
+                    selectedLayer = 4;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 0)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG3onMainScreen && bg3opaque)
                 {
                     mainScreenCol = bg3col;
+                    selectedLayer = 3;
                 }
                 else if (BG4onMainScreen && bg4opaque)
                 {
                     mainScreenCol = bg4col;
+                    selectedLayer = 4;
                 }
                 else
                 {
                     mainScreenCol = scol;
+                    selectedLayer = 0;
                 }
             }
             else
@@ -1478,40 +1514,69 @@ public:
                 if (OBJonMainScreen && objopaque && ojbprior == 3)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG1onMainScreen && bg1opaque && bg1prior)
                 {
                     mainScreenCol = bg1col;
+                    selectedLayer = 1;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 2)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG2onMainScreen && bg2opaque && bg2prior)
                 {
                     mainScreenCol = bg2col;
+                    selectedLayer = 2;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 1)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG1onMainScreen && bg1opaque)
                 {
                     mainScreenCol = bg1col;
+                    selectedLayer = 1;
                 }
                 else if (OBJonMainScreen && objopaque && ojbprior == 0)
                 {
                     mainScreenCol = objcol;
+                    selectedLayer = 5;
                 }
                 else if (BG2onMainScreen && bg2opaque)
                 {
                     mainScreenCol = bg2col;
+                    selectedLayer = 2;
                 }
                 else
                 {
                     mainScreenCol = scol;
+                    selectedLayer = 0;
                 }
             }
+
+            uint8 mainR = ((mainScreenCol & 0b0000000000011111) >> 0);
+            uint8 mainG = ((mainScreenCol & 0b0000001111100000) >> 5);
+            uint8 mainB = ((mainScreenCol & 0b0111110000000000) >> 10);
+
+            uint16 selectedCol = constColorSel ? constColor : subScreenCol;
+            uint8 R = (selectedCol & 0b0000000000011111) >> 0;
+            uint8 G = (selectedCol & 0b0000001111100000) >> 5;
+            uint8 B = (selectedCol & 0b0111110000000000) >> 10;
+
+            if ((selectedLayer == 0 && bdpAddSub) || (selectedLayer == 1 && bg1AddSub) || (selectedLayer == 2 && bg2AddSub) ||
+                (selectedLayer == 3 && bg3AddSub) || (selectedLayer == 4 && bg4AddSub) || (selectedLayer == 5 && objAddSub))
+            {
+
+                mainR = (mainR + (addSub ? -R : R)) >> (addSubHalf ? 1 : 0);
+                mainG = (mainG + (addSub ? -G : G)) >> (addSubHalf ? 1 : 0);
+                mainB = (mainB + (addSub ? -B : B)) >> (addSubHalf ? 1 : 0);
+            }
+
+       
 
             if (bgFilter == 1)
                 mainScreenCol = bg1col;
@@ -1524,21 +1589,14 @@ public:
             else if (bgFilter == 5)
                 mainScreenCol = objcol;
 
-            uint8 mainR = ((mainScreenCol & 0b0000000000011111) << 3) >> (15 - fadeValue);
-            uint8 mainG = ((mainScreenCol & 0b0000001111100000) >> 2) >> (15 - fadeValue);
-            uint8 mainB = ((mainScreenCol & 0b0111110000000000) >> 7) >> (15 - fadeValue);
-            uint8 subR = ((subScreenCol & 0b0000000000011111) << 3) >> (15 - fadeValue);
-            uint8 subG = ((subScreenCol & 0b0000001111100000) >> 2) >> (15 - fadeValue);
-            uint8 subB = ((subScreenCol & 0b0111110000000000) >> 7) >> (15 - fadeValue);
+            mainR = (mainR << 3) / (16 - fadeValue);
+            mainG = (mainG << 3) / (16 - fadeValue);
+            mainB = (mainB << 3) / (16 - fadeValue);
 
-            uint8 R, G, B;
-
-            R = mainR;
-            G = mainG;
-            B = mainB;
+         
             // cout << "RGB : (" << dec << (unsigned int)R << "," << (unsigned int)G << "," << (unsigned int)B << ")" << endl;
 
-            fb[FB_WIDTH * vCounter + hCounter] = forceBlank ? 0 : MFB_ARGB(255, R, G, B);
+            fb[FB_WIDTH * vCounter + hCounter] = forceBlank ? 0 : MFB_ARGB(255, mainR, mainG, mainB);
         }
 
         // hCnt from 0 to 339

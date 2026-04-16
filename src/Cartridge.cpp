@@ -86,13 +86,20 @@ public:
             break;
         }
 
-        memcpy(&readByte, this->rom + headerLoc + 21, 1); // Speed And Type
+        memcpy(&readByte, this->rom + headerLoc + 21, 1); // Speed And Type - 0xFFD5
         this->speed = readByte & 0b00010000;
 
-        memcpy(&readByte, this->rom + headerLoc + 24, 1); // Title
+
+        memcpy(&readByte, this->rom + headerLoc + 22, 1); // 0xFFD6
+
+        memcpy(&readByte, this->rom + headerLoc + 24, 1); // SramSize - 0xFFD8
 
         this->sramSize = 1 << (readByte + 10);
         this->sram = (uint8_t *)malloc(this->sramSize);
+
+        
+
+        
 
         if (i % 2)
         {

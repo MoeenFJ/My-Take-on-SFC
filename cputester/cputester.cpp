@@ -11,13 +11,13 @@ uint8 ram[16 * 1024 * 1024] = {0};
 uint8 C65Read(add24 address)
 {
     address &= 0xffffff;
-    cout << "addrees : " << hex << address << endl;
+    //cout << "addrees : " << hex << address << endl;
     return ram[address];
 }
 void C65Write(add24 address, uint8 data)
 {
     address &= 0xffffff;
-    cout << "addrees : " << hex << address << endl;
+    //cout << "addrees : " << hex << address << endl;
     ram[address] = data;
 }
 
@@ -27,7 +27,7 @@ int main()
 
 
 
-    for (uint16 inst = 0x31; inst < 256; inst++)
+    for (uint16 inst = 0x44; inst < 256; inst++)
     {
 
         //Ignore MVN and MVP for now
@@ -131,7 +131,7 @@ int main()
                 add24 address = ram_entry[0];
                 uint8 value = ram_entry[1];
                 if(ram[address] != value){
-                     cout << "ram at "<<hex<< address  << " Should be : " << hex  <<(uint16)value << endl;
+                     cout << "ram at "<<hex<< address  << " Should be : " << hex  <<(uint16)value << " instead is " << (uint16)ram[address] <<endl;
                     passed = false;
                 }
             }

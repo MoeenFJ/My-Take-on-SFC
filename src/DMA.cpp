@@ -680,7 +680,7 @@ public:
             else
             {
                 hdmaCount[i] = line & 0b01111111;
-                if(hdmaCount[i] == 0x00)
+                if (hdmaCount[i] == 0x00)
                     hdmaCount[i] = 128;
                 hdmaCont[i] = line & 0b10000000;
 
@@ -688,18 +688,15 @@ public:
                 tablePtr[i] = 0;
             }
 
-            
             cout << "========== HDMA[" << i << "] Init ==========" << endl;
             cout << "table header : " << hex << line << endl;
             cout << "table addr : " << hex << tableAddress[i] << endl;
             cout << "type : " << dec << (uint16)hdmaType[i] << endl;
             cout << "abs/indir : " << (absAddr[i] ? "abs" : "indir") << endl;
             cout << "cont : " << (hdmaCont[i] ? "y" : "n") << endl;
-            cout << "count : "<< hex <<  (uint16)hdmaCount[i] << endl;
-            
+            cout << "count : " << hex << (uint16)hdmaCount[i] << endl;
+
             cout << "b addr : " << hex << hdmaDestAddr[i] << endl;
-            
-       
         }
     }
     void step(bool hBlank)
@@ -746,8 +743,27 @@ public:
                     continue;
 
                 uint8 data = 0;
-                uint16 addr = ReadByte(tableAddress[i] + 1) | (ReadByte(tableAddress[i] + 2) << 8);
-                add24 dataAddr = tablePtr[i] + (absAddr[i] ? (tableAddress[i] + 1) : ((regs.HDMAADDB[i] << 16) | addr));
+
+                add24 dataAddr;
+                if (absAddr[i])
+                {
+                    dataAddr = (tablePtr[i] + tableAddress[i] + 1) & 0x00FFFF;
+                    dataAddr |= (regs.DMAABADDB[i] << 16);
+                }
+                else
+                {
+                    add24 addL = (tableAddress[i] + 1) & 0x00FFFF;
+                    addL |= (regs.DMAABADDB[i] << 16);
+                    add24 addH = (tableAddress[i] + 2) & 0x00FFFF;
+                    addH |= (regs.DMAABADDB[i] << 16);
+
+                    
+                    cout << "indir add add : " << hex  << (uint16)addL << endl;
+                    uint16 addr = ReadByte(addL) | (ReadByte(addH) << 8);
+                    cout << "indir add : " << hex  << addr << endl;
+                    dataAddr = (addr + tablePtr[i]) & 0x00FFFF;
+                    dataAddr |= (regs.HDMAADDB[i] << 16);
+                }
 
                 switch (hdmaType[i])
                 {
@@ -760,12 +776,12 @@ public:
                 }
                 case 1:
                 {
-                 
+
                     data = ReadByte(dataAddr);
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+1);
-                    WriteByte(hdmaDestAddr[i]+1, data);
+                    data = ReadByte(dataAddr + 1);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
                     tablePtr[i]++;
                     break;
                 }
@@ -775,7 +791,7 @@ public:
                     data = ReadByte(dataAddr);
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+1);
+                    data = ReadByte(dataAddr + 1);
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
                     break;
@@ -784,17 +800,17 @@ public:
                 {
 
                     data = ReadByte(dataAddr);
-                    
+
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+1);
+                    data = ReadByte(dataAddr + 1);
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+2);
-                    WriteByte(hdmaDestAddr[i]+1, data);
+                    data = ReadByte(dataAddr + 2);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+3);
-                    WriteByte(hdmaDestAddr[i]+1, data);
+                    data = ReadByte(dataAddr + 3);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
                     tablePtr[i]++;
                     break;
                 }
@@ -804,14 +820,14 @@ public:
                     data = ReadByte(dataAddr);
                     WriteByte(hdmaDestAddr[i], data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+1);
-                    WriteByte(hdmaDestAddr[i]+1, data);
+                    data = ReadByte(dataAddr + 1);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+2);
-                    WriteByte(hdmaDestAddr[i]+2, data);
+                    data = ReadByte(dataAddr + 2);
+                    WriteByte(hdmaDestAddr[i] + 2, data);
                     tablePtr[i]++;
-                    data = ReadByte(dataAddr+3);
-                    WriteByte(hdmaDestAddr[i]+3, data);
+                    data = ReadByte(dataAddr + 3);
+                    WriteByte(hdmaDestAddr[i] + 3, data);
                     tablePtr[i]++;
                     break;
                 }
@@ -823,20 +839,24 @@ public:
                 hdmaCount[i] -= 1;
                 hdmaDone[i] += 1;
 
-                
-
                 if (hdmaCount[i] == 0)
                 {
                     uint8 line;
-                    if(absAddr[i])
+                    if (absAddr[i])
                     {
-                        tableAddress[i] += tablePtr[i]+1;
+                        tableAddress[i] += tablePtr[i] + 1;
+                        tableAddress[i] &= 0x00FFFF;
+                        tableAddress[i] |= regs.DMAABADDB[i] << 16;
+                     
                     }
                     else
                     {
                         tableAddress[i] += 3;
+                        tableAddress[i] &= 0x00FFFF;
+                        tableAddress[i] |= regs.DMAABADDB[i] << 16;
+                     
                     }
-          
+
                     line = ReadByte(tableAddress[i]);
                     if (line == 0x00) // End of table, Done
                     {
@@ -845,7 +865,7 @@ public:
                     else
                     {
                         hdmaCount[i] = line & 0b01111111;
-                        if(hdmaCount[i] == 0x00)
+                        if (hdmaCount[i] == 0x00)
                             hdmaCount[i] = 128;
                         hdmaCont[i] = line & 0b10000000;
                         hdmaDone[i] = 0;
@@ -853,27 +873,24 @@ public:
                     }
                 }
 
-                //WHAT SHOULD THIS BE?!
+                // WHAT SHOULD THIS BE?!
                 if (!hdmaCont[i])
                 {
                     tablePtr[i] = 0;
                 }
 
-                
-                
                 cout << "-=-=-=-=-=-=-=-=-=HDMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
                 cout << "type : " << dec << (uint16)hdmaType[i] << endl;
                 cout << "abs/indir : " << (absAddr[i] ? "abs" : "indir") << endl;
                 cout << "rep : " << (hdmaCont[i] ? "y" : "n") << endl;
                 cout << "b addr : " << hex << hdmaDestAddr[i] << endl;
-                cout << "a addr : " << hex << tableAddress[i] << endl;
-                cout << "a tab ptr : "  << dec << tablePtr[i] << endl;
-                cout << "data addr : " << hex << dataAddr << endl; 
+                cout << "a table : " << hex << tableAddress[i] << endl;
+                cout << "a bank : " << hex << (uint16)regs.DMAABADDB[i] << endl;
+                cout << "indir bank : " << hex << (uint16)regs.HDMAADDB[i] << endl;
+                cout << "a tab ptr : " << dec << tablePtr[i] << endl;
+                cout << "data addr : " << hex << dataAddr << endl;
                 cout << "counter : " << dec << (uint16)hdmaCount[i] << endl;
                 cout << "done : " << dec << (uint16)hdmaDone[i] << endl;
-                
-              
-
             }
         }
         else
@@ -888,52 +905,53 @@ public:
 
             uint8 type = regs.DMAPARAM[i] & 0b00000111;
             bool fixedAddr = (1 << 3) & regs.DMAPARAM[i];
-            bool incAddr = (1 << 4) & regs.DMAPARAM[i];
+            bool decAddr = (1 << 4) & regs.DMAPARAM[i];
             bool dir = (1 << 7) & regs.DMAPARAM[i];
 
             add24 bAddr = 0x002100 | regs.DMABBADD[i];
-            add24 aAddr = regs.DMAABADDB[i] << 16 | regs.DMAABADDH[i] << 8 | regs.DMAABADDL[i];
+            add24 aAddr = regs.DMAABADDH[i] << 8 | regs.DMAABADDL[i];
             uint16 num = regs.DMABYTESH[i] << 8 | regs.DMABYTESL[i];
+            if (num == 0)
+                num = 0x10000;
 
-    
-            //cout << "-=-=-=-=-=-=-=-=-=DMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
-            //cout << "type : " << dec << (uint16)type << endl;
-            //cout << "fixed : " << (fixedAddr ? "fixed" : "change") << endl;
-            //cout << "inc : " << (incAddr ? "+" : "-") << endl;
-            //cout << "dir : " << (dir ? "B->A" : "A->B") << endl;
-            //cout << "b addr : " << hex << bAddr << endl;
-            //cout << "a addr : " << hex << aAddr << endl;
-            //cout << "bytes : " << dec << num << endl;
-            //cout << "done : " << dec << transferred[i] << endl;
-            //if(bAddr == 0x2116 )
-            //    cin.get();
+            // cout << "-=-=-=-=-=-=-=-=-=DMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
+            // cout << "type : " << dec << (uint16)type << endl;
+            // cout << "fixed : " << (fixedAddr ? "fixed" : "change") << endl;
+            // cout << "inc : " << (incAddr ? "+" : "-") << endl;
+            // cout << "dir : " << (dir ? "B->A" : "A->B") << endl;
+            // cout << "b addr : " << hex << bAddr << endl;
+            // cout << "a addr : " << hex << aAddr << endl;
+            // cout << "bytes : " << dec << num << endl;
+            // cout << "done : " << dec << transferred[i] << endl;
+            // if(bAddr == 0x2116 )
+            //     cin.get();
 
             add24 offset = type == 0 ? 0 : type == 1 ? transferred[i] % 2
                                        : type == 2   ? 0
                                        : type == 3   ? (transferred[i] >> 1) % 2
                                        : type == 4   ? transferred[i] % 4
                                                      : 0;
-
+            add24 bEffAdd = (bAddr + offset);
+            add24 aEffAdd = (regs.DMAABADDB[i] << 16) | aAddr;
             if (dir) // B to A
             {
 
-                uint8 t = ReadByte(bAddr + offset);
-                //cout << "effective Addr : " << hex << aAddr << endl;
-                //cout << "data : " << hex << (uint16)t << endl;
-                WriteByte(aAddr, t);
+                uint8 t = ReadByte(bEffAdd);
+                // cout << "effective Addr : " << hex << aAddr << endl;
+                // cout << "data : " << hex << (uint16)t << endl;
+                WriteByte(aEffAdd, t);
             }
             else // A to B
             {
-
-                uint8 t = ReadByte(aAddr);
-                //cout << "effective Addr : " << hex << bAddr + offset << endl;
-                //cout << "data : " << hex <<(uint16) t << endl;
-                WriteByte(bAddr + offset, t);
+                uint8 t = ReadByte(aEffAdd);
+                // cout << "effective Addr : " << hex << bAddr + offset << endl;
+                // cout << "data : " << hex <<(uint16) t << endl;
+                WriteByte(bEffAdd, t);
             }
 
             if (!fixedAddr)
             {
-                if (incAddr)
+                if (decAddr)
                 {
                     aAddr--;
                 }
@@ -941,12 +959,14 @@ public:
                 {
                     aAddr++;
                 }
-                regs.DMAABADDB[i] = (aAddr & 0xFF0000) >> 16;
+
+                // Does the address wrap?aAddr = regs.DMAABADDH[i] << 8 | regs.DMAABADDL[i];
+                // regs.DMAABADDB[i] = (aAddr & 0xFF0000) >> 16;
                 regs.DMAABADDH[i] = (aAddr & 0x00FF00) >> 8;
                 regs.DMAABADDL[i] = (aAddr & 0x0000FF) >> 0;
             }
 
-            //Increase first, check after!!!
+            // Increase first, check after!!!
             transferred[i]++;
             if (transferred[i] >= num)
             {
@@ -954,7 +974,6 @@ public:
                 // cin.get();
                 MDMAEN = MDMAEN & (~(1 << i));
             }
-   
         }
     }
 };

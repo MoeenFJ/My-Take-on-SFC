@@ -198,7 +198,6 @@ public:
     bool stop = false;
     add24 instAddress;
 
-
     add24 PCByteAhead(uint8 n = 1)
     {
         return ((add24)cregs.K << 16) | (((add24)cregs.PC + n) & 0x00FFFF);
@@ -248,7 +247,7 @@ public:
 
         case AbsPtr16:
         case AbsPtr24:
-            addL =  (hh << 8) | ll;
+            addL = (hh << 8) | ll;
             addH = addL + 1;
             addH &= 0x00FFFF;
             addXH = addL + 2;
@@ -262,7 +261,7 @@ public:
             break;
 
         case AbsXPtr16:
-            addL =  (hh << 8) | ll;
+            addL = (hh << 8) | ll;
             addL += cregs.X;
 
             addH = addL + 1;
@@ -272,7 +271,7 @@ public:
             addL |= cregs.K << 16;
             addH |= cregs.K << 16;
             break;
-            
+
         case AbsX:
             addL = (cregs.DBR << 16) | (hh << 8) | ll;
             addL += cregs.X;
@@ -328,8 +327,6 @@ public:
             break;
         default:
             break;
-
-            
         }
 
         switch (mode)
@@ -338,7 +335,7 @@ public:
         case AbsPtr16:
             addL = (cregs.K << 16) | (ReadByte(addH) << 8) | ReadByte(addL);
             break;
-        
+
         case DirPtr16:
         case DirXPtr16:
         case DirPtr16Y:
@@ -371,7 +368,7 @@ public:
         }
 
         addL &= 0x00FFFFFF;
-            addH &= 0x00FFFFFF;
+        addH &= 0x00FFFFFF;
     }
 
     void WriteM(uint16 d)
@@ -727,7 +724,9 @@ public:
         flags.N = (t & (flags.M ? 0x0080 : 0x8000)) != 0;
         flags.Z = (t & (flags.M ? 0x00FF : 0xFFFF)) == 0;
     }
-    
+
+
+    //Rename to printState
     void printStatus()
     {
         // nvmxdizc
@@ -752,7 +751,7 @@ public:
         cout << "OpCode : " << std::hex << (int)inst << endl;
         cout << "3 Bytes Ahead : " << std::hex << (int)ReadByte(instAddress + 1) << " " << std::hex << (int)ReadByte(instAddress + 2) << " " << std::hex << (int)ReadByte(instAddress + 3) << " " << endl;
     }
-    
+
     string stringStatus()
     {
         stringstream ss;
@@ -1633,7 +1632,7 @@ public:
 
         case 0x32: // AND (dir)
         {
-           ResolveAddress(AddressingMode::DirPtr16);
+            ResolveAddress(AddressingMode::DirPtr16);
             uint16 d = ReadM();
             UpdateC(cregs.C & d);
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
@@ -2211,7 +2210,7 @@ public:
                 flags.C = t & 0x8000;
             }
             t = (t << 1) | c;
-            WriteM( t);
+            WriteM(t);
             flags.N = t & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
@@ -2833,7 +2832,7 @@ public:
         case 0x8f: // STA long
         {
             ResolveAddress(AddressingMode::Long);
-      
+
             WriteM(cregs.C);
             cregs.PC += 4;
             break;
@@ -2850,7 +2849,7 @@ public:
         case 0x92: // STA (dir)
         {
             ResolveAddress(AddressingMode::DirPtr16);
-        
+
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2868,7 +2867,7 @@ public:
         case 0x95: // STA dir,x
         {
 
-           ResolveAddress(AddressingMode::DirX);
+            ResolveAddress(AddressingMode::DirX);
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
@@ -2910,7 +2909,7 @@ public:
         case 0x86: // STX dir
         {
 
-           ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(AddressingMode::Dir);
             WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
@@ -3207,7 +3206,7 @@ public:
         }
         case 0xe4: // CPX dir
         {
-           ResolveAddress(AddressingMode::Dir);
+            ResolveAddress(AddressingMode::Dir);
             uint16 d = ReadX();
             flags.C = (cregs.X & (flags.X ? 0x00FF : 0xFFFF)) >= d;
             d = cregs.X - d;
@@ -3469,14 +3468,14 @@ public:
 
         case 0x4c: // JMP abs
         {
-             ResolveAddress(AddressingMode::Abs);
+            ResolveAddress(AddressingMode::Abs);
             cregs.PC = addL & 0x00FFFF;
             break;
         }
 
         case 0x5c: // JMP long
         {
-             ResolveAddress(AddressingMode::Long);
+            ResolveAddress(AddressingMode::Long);
             cregs.PC = addL & 0x00FFFF;
             cregs.K = (addL & 0xFF0000) >> 16;
             break;
@@ -3492,7 +3491,7 @@ public:
         case 0x20: // JSR abs
         {
             ResolveAddress(AddressingMode::Abs);
-     
+
             // push PC+2 to stack
             PushWord(cregs.PC + 2);
             // No Flags
@@ -3509,7 +3508,7 @@ public:
             // cin.get();
             //  No Flags
             cregs.PC = addL;
-           
+
             break;
         }
         case 0x22: // JSL long
@@ -3572,16 +3571,18 @@ public:
                 cregs.Y -= 1;
                 cregs.C -= 1;
             }
-            cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
 
             if (cregs.C == 0xFFFF)
+            {
+                cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
                 cregs.PC += 3;
+            }
             break;
         }
         case 0x54: // MVN
         {
-            add24 srcB = ReadByte(instAddress + 2) << 16;
-            add24 dstB = ReadByte(instAddress + 1) << 16;
+            add24 srcB = ReadByte(PCByteAhead(2)) << 16;
+            add24 dstB = ReadByte(PCByteAhead(1)) << 16;
             add24 src, dest;
             if (cregs.C != 0xFFFF)
             {
@@ -3590,13 +3591,16 @@ public:
                 // cout << "MVN : " << hex << src << " --> " << dest << " : " << hex << (uint16)ReadByte(src) << endl;
                 WriteByte(dest, ReadByte(src));
                 cregs.X += 1;
+
                 cregs.Y += 1;
                 cregs.C -= 1;
             }
-            cregs.DBR = ReadByte(instAddress + 1); // DBR = dest bank
 
             if (cregs.C == 0xFFFF)
+            {
+                cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
                 cregs.PC += 3;
+            }
             break;
         }
 #pragma endregion

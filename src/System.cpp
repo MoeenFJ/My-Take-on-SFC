@@ -281,6 +281,14 @@ void emu()
 void exitEmu()
 {
     cpuTraceFile.close();
+    
+    stringstream ss;
+    ss << rom->title << ".srm";
+
+    ofstream sramFile(ss.str(), std::ios::binary);
+    sramFile.write(reinterpret_cast<const char *>(rom->sram), rom->sramSize * sizeof(uint8));
+    sramFile.close();
+
     mfb_close(window);
     exit(0);
 }
@@ -1022,6 +1030,22 @@ int main(int argc, char *argv[])
 
 
     rom = new Cartridge(argv[1]);
+
+    stringstream ss;
+    ss << rom->title << ".srm";
+    ifstream sramFile(ss.str(), std::ios::binary);
+
+    bool sramExists = true;
+    if (!sramFile.is_open()) {
+        sramExists = false;
+
+    }
+    if(sramExists)
+    {
+        sramFile.read(reinterpret_cast<char*>(rom->sram), rom->sramSize);
+    }
+    sramFile.close();
+
     cpu = new CPU(C65Read, C65Write);
     apu = new APU();
     ppu = new PPU();
