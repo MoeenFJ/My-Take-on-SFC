@@ -36,7 +36,7 @@ int main()
      
         // Load
         stringstream ss;
-        ss << "./tests/" <<  hex << setfill('0') << setw(2) << (uint16)inst << ".n.json";
+        ss << "./tests/" <<  hex << setfill('0') << setw(2) << (uint16)inst << ".e.json";
         std::ifstream tstVectorFile(ss.str());
 
         json tvs = json::parse(tstVectorFile);

@@ -197,6 +197,7 @@ public:
     bool waitForInt = false;
     bool stop = false;
     add24 instAddress;
+    uint8 curCycle = 0;
 
     add24 PCByteAhead(uint8 n = 1)
     {
@@ -495,6 +496,7 @@ public:
         cregs.PC = rstVector;
         cout << "rstVector : " << rstVector << endl;
         stop = false;
+        curCycle = 0;
     }
 
     void invokeNMI()
@@ -506,7 +508,7 @@ public:
         PushWord(cregs.PC); // 16 Bit
         Push(flags);        // 8 Bit
 
-        cout << "------------NMI------------------" << endl;
+        // cout << "------------NMI------------------" << endl;
         uint16 nmi;
         cregs.K = 0;
         if (flagE)
@@ -534,7 +536,7 @@ public:
         PushWord(cregs.PC); // 16 Bit
         Push(flags);        // 8 Bit
 
-        cout << "------------IRQ------------------" << endl;
+        // cout << "------------IRQ------------------" << endl;
 
         uint16 irq;
         cregs.K = 0;
@@ -725,8 +727,7 @@ public:
         flags.Z = (t & (flags.M ? 0x00FF : 0xFFFF)) == 0;
     }
 
-
-    //Rename to printState
+    // Rename to printState
     void printStatus()
     {
         // nvmxdizc
@@ -783,6 +784,7 @@ public:
 
     void cpuStep()
     {
+        curCycle++;
         if (waitForInt || stop)
         {
             return;
@@ -808,12 +810,20 @@ public:
 
         case 0xea: // NOP
         {
+            if(curCycle < 2)
+                break;
+
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x42: // WDM
         {
+            if(curCycle < 2)
+                break;
+
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -838,6 +848,7 @@ public:
             cout << "=-=-=-=-=-=-=-=-=-=-= BREAK POINT =-=-=-=-=-=-=-=-=-=-=" << endl;
 
             // cin.get();
+            curCycle = 0;
             break;
         }
         // Needs more reading and changing, not gonna be use anyways
@@ -857,18 +868,21 @@ public:
             else
                 cop = ReadWordAt(0x00FFE4);
             cregs.PC = cop;
+            curCycle = 0;
             break;
         }
         case 0xdb: // STP
         {
             stop = true;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xcb: // WAI
         {
             waitForInt = true;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 #pragma region Flag_Manipulation
@@ -879,48 +893,56 @@ public:
             flags.C = e;
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x78: // SEI
         {
             flags.I = 1;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x38: // SEC
         {
             flags.C = 1;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xF8: // SED
         {
             flags.D = 1;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xB8: // CLV
         {
             flags.V = 0;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x18: // CLC
         {
             flags.C = 0;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xD8: // CLD
         {
             flags.D = 0;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x58: // CLI
         {
             flags.I = 0;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -930,6 +952,7 @@ public:
             uint8 imm = ReadByte(addL);
             flags.ResetMask(imm);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xe2: // SEP imm - Set selected Flags
@@ -938,6 +961,7 @@ public:
             uint8 imm = ReadByte(addL);
             flags.SetMask(imm);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 #pragma endregion
@@ -953,6 +977,7 @@ public:
             // cin.get();
             cregs.PC += 1;
 
+            curCycle = 0;
             break;
         }
         case 0x48: // PHA
@@ -962,6 +987,7 @@ public:
             else
                 PushWord((uint16)cregs.C);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xda: // PHX
@@ -971,6 +997,7 @@ public:
             else
                 PushWord((uint16)cregs.X);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x5a: // PHY
@@ -980,6 +1007,7 @@ public:
             else
                 PushWord((uint16)cregs.Y);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x0b: // PHD
@@ -987,6 +1015,7 @@ public:
 
             PushWord((uint16)cregs.D);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x8b: // PHB
@@ -994,12 +1023,14 @@ public:
             // TODO : Make sure about 1 byte
             Push((uint16)cregs.DBR);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x4b: // PHK
         {
             Push((uint16)cregs.K);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1018,6 +1049,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x7a: // PLY
@@ -1033,6 +1065,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xfa: // PLX
@@ -1048,6 +1081,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xab: // PLB
@@ -1057,6 +1091,7 @@ public:
             flags.N = cregs.DBR & 0x0080;
             flags.Z = !(cregs.DBR & 0x00FF);
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x28: // PLP
@@ -1067,6 +1102,7 @@ public:
             cregs.PC += 1;
             // cout << "new flags " << (uint16)flags << endl;
 
+            curCycle = 0;
             break;
         }
         case 0x2B: // PLD
@@ -1076,6 +1112,7 @@ public:
             flags.N = cregs.D & 0x8000;
             flags.Z = !cregs.D; // Since operation is 16 bit
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1085,6 +1122,7 @@ public:
             ResolveAddress(CPUAddressingMode::Imm);
             PushWord(ReadWord());
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xd4: // PEI
@@ -1093,6 +1131,7 @@ public:
             ResolveAddress(CPUAddressingMode::Dir);
             PushWord(ReadWord()); // Or ReadM?
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x62: // PER
@@ -1101,6 +1140,7 @@ public:
             signed short imm = ReadWord();
             PushWord(instAddress + 3 + imm);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 #pragma endregion
@@ -1115,6 +1155,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x63: // ADC stk,S
@@ -1124,6 +1165,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x65: // ADC dir
@@ -1133,6 +1175,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x67: // ADC [dir]
@@ -1142,6 +1185,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x69: // ADC imm
@@ -1155,6 +1199,7 @@ public:
 
             cregs.PC += 3 - flags.M;
 
+            curCycle = 0;
             break;
         }
         case 0x6d: // ADC abs
@@ -1164,6 +1209,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1174,6 +1220,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0x71: // ADC (dir),y
@@ -1183,6 +1230,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1193,6 +1241,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x73: // ADC (stk,s),y
@@ -1202,6 +1251,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x75: // ADC dir,x
@@ -1211,6 +1261,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x77: // ADC [dir],y
@@ -1220,6 +1271,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1230,6 +1282,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1240,6 +1293,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1250,6 +1304,7 @@ public:
             uint16 d = ReadM();
             doADC(d);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1260,6 +1315,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xe3: // SBC stk,S
@@ -1269,6 +1325,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1279,6 +1336,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1289,6 +1347,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1298,6 +1357,7 @@ public:
             uint16 imm = ReadM();
             doSBC(imm);
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
 
@@ -1308,6 +1368,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xef: // SBC long
@@ -1317,6 +1378,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0xf1: // SBC (dir),y
@@ -1326,6 +1388,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xf2: // SBC (dir)
@@ -1334,6 +1397,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xf3: // SBC (stk,S),y
@@ -1343,6 +1407,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xf5: // SBC dir,x
@@ -1352,6 +1417,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xf7: // SBC [dir],y
@@ -1361,6 +1427,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xf9: // SBC abs,y
@@ -1370,6 +1437,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xfd: // SBC abs,x
@@ -1379,6 +1447,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xff: // SBC long,x
@@ -1388,6 +1457,7 @@ public:
             uint16 d = ReadM();
             doSBC(d);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1398,6 +1468,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xc6: // DEC dir
@@ -1410,6 +1481,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xce: // DEC abs
@@ -1422,6 +1494,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xd6: // DEC dir,x
@@ -1434,6 +1507,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xde: // DEC abs,x
@@ -1446,6 +1520,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1455,6 +1530,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1464,6 +1540,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1474,6 +1551,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1487,6 +1565,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xee: // INC abs
@@ -1499,6 +1578,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xf6: // INC dir,x
@@ -1511,6 +1591,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xfe: // INC abs,x
@@ -1523,6 +1604,7 @@ public:
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1532,6 +1614,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xc8: // INY
@@ -1541,6 +1624,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -1556,6 +1640,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
 
+            curCycle = 0;
             break;
         }
         case 0x23: // AND stk,S
@@ -1566,6 +1651,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x25: // AND dir
@@ -1576,6 +1662,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x27: // AND [dir]
@@ -1586,6 +1673,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x29: // AND imm
@@ -1596,6 +1684,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
         case 0x2d: // AND abs
@@ -1606,6 +1695,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x2f: // AND long
@@ -1616,6 +1706,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1627,6 +1718,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1638,6 +1730,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1649,6 +1742,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1660,6 +1754,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x37: // AND [dir],y
@@ -1670,6 +1765,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1682,6 +1778,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
 
+            curCycle = 0;
             break;
         }
         case 0x3d: // AND abs,x
@@ -1693,6 +1790,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
             // cin.get();
+            curCycle = 0;
             break;
         }
 
@@ -1704,6 +1802,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1716,6 +1815,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x43: // EOR stk,S
@@ -1726,6 +1826,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x45: // EOR dir
@@ -1736,6 +1837,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x47: // EOR [dir]
@@ -1746,6 +1848,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x49: // EOR imm
@@ -1756,6 +1859,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
         case 0x4d: // EOR abs
@@ -1766,6 +1870,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x4f: // EOR long
@@ -1776,6 +1881,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1787,6 +1893,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1798,6 +1905,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1809,6 +1917,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1820,6 +1929,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x57: // EOR [dir],y
@@ -1830,6 +1940,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1841,6 +1952,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x5d: // EOR abs,x
@@ -1851,6 +1963,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -1862,6 +1975,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1874,6 +1988,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x03: // ORA stk,S
@@ -1884,6 +1999,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x05: // ORA dir
@@ -1894,6 +2010,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x07: // ORA [dir]
@@ -1904,6 +2021,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x09: // ORA imm
@@ -1914,6 +2032,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
         case 0x0d: // ORA abs
@@ -1924,6 +2043,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x0f: // ORA long
@@ -1934,6 +2054,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -1945,6 +2066,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1956,6 +2078,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1967,6 +2090,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1978,6 +2102,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x17: // ORA [dir],y
@@ -1988,6 +2113,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -1999,6 +2125,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x1d: // ORA abs,x
@@ -2009,6 +2136,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2020,6 +2148,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -2042,6 +2171,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x0a: // ASL acc
@@ -2060,6 +2190,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x0e: // ASL abs
@@ -2081,6 +2212,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2103,6 +2235,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2125,6 +2258,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2138,6 +2272,7 @@ public:
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2153,6 +2288,7 @@ public:
             flags.N = 0;
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2166,6 +2302,7 @@ public:
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2179,6 +2316,7 @@ public:
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2192,6 +2330,7 @@ public:
             flags.N = 0;
             flags.Z = !t;
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2215,6 +2354,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2238,6 +2378,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2261,6 +2402,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2284,6 +2426,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2307,6 +2450,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2324,6 +2468,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2347,6 +2492,7 @@ public:
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2364,6 +2510,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2381,6 +2528,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2398,6 +2546,7 @@ public:
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 #pragma endregion
@@ -2412,6 +2561,7 @@ public:
             flags.N = cregs.C & 0x0080;
             flags.Z = !cregs.C.L;
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2423,6 +2573,7 @@ public:
             flags.Z = !(cregs.C);
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x1b: // TCS - S <- C
@@ -2430,6 +2581,7 @@ public:
             cregs.S = cregs.C;
             // Yes, no flags here
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2441,6 +2593,7 @@ public:
             flags.Z = !(cregs.C);
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2452,6 +2605,7 @@ public:
             flags.Z = !(cregs.C);
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2464,6 +2618,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xa8: // TAY - Y <- C
@@ -2472,6 +2627,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2482,6 +2638,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x8a: // TXA - C <- X
@@ -2491,6 +2648,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x9a: // TXS - S <- X
@@ -2499,6 +2657,7 @@ public:
             cregs.S = cregs.X;
 
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0x9b: // TXY - Y <- X
@@ -2508,6 +2667,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 
@@ -2518,6 +2678,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
         case 0xbb: // TYX - X <- Y
@@ -2527,6 +2688,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 1;
+            curCycle = 0;
             break;
         }
 #pragma endregion
@@ -2541,6 +2703,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xa3: // LDA stk,S
@@ -2550,6 +2713,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xa5: // LDA dir
@@ -2559,6 +2723,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xa7: // LDA  [dir]
@@ -2570,6 +2735,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xa9: // LDA imm
@@ -2581,6 +2747,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
         case 0xad: // LDA abs
@@ -2592,6 +2759,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xaf: // LDA long
@@ -2601,6 +2769,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -2611,6 +2780,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2621,6 +2791,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2631,6 +2802,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xb5: // LDA dir,x
@@ -2640,6 +2812,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xb7: // LDA [dir],y
@@ -2649,6 +2822,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2661,6 +2835,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xbd: // LDA abs,x
@@ -2672,6 +2847,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xbf: // LDA long,x
@@ -2681,6 +2857,7 @@ public:
             flags.N = cregs.C & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(cregs.C & (flags.M ? 0x00FF : 0xFFFF)); // If M is one, the upper bits of C is already 0, so theres no need for checking JUST the 8 lower bits.
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0xa2: // LDX imm
@@ -2693,6 +2870,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.X;
+            curCycle = 0;
             break;
         }
         case 0xa6: // LDX dir
@@ -2702,6 +2880,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xae: // LDX abs
@@ -2711,6 +2890,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2721,6 +2901,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2731,6 +2912,7 @@ public:
             flags.N = cregs.X & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.X & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2744,6 +2926,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.X;
+            curCycle = 0;
             break;
         }
 
@@ -2754,6 +2937,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2764,6 +2948,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xb4: // LDY dir,x
@@ -2773,6 +2958,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xbc: // LDY abs,x
@@ -2782,6 +2968,7 @@ public:
             flags.N = cregs.Y & (flags.X ? 0x0080 : 0x8000);
             flags.Z = !(cregs.Y & (flags.X ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2792,6 +2979,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2802,6 +2990,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x85: // STA dir
@@ -2811,6 +3000,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x87: // STA [dir]
@@ -2820,6 +3010,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x8d: // STA abs
@@ -2827,6 +3018,7 @@ public:
             ResolveAddress(CPUAddressingMode::Abs);
             WriteM(cregs.C);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x8f: // STA long
@@ -2835,6 +3027,7 @@ public:
 
             WriteM(cregs.C);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0x91: // STA (dir),y
@@ -2844,6 +3037,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x92: // STA (dir)
@@ -2853,6 +3047,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x93: // STA (stk,s),y
@@ -2862,6 +3057,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x95: // STA dir,x
@@ -2871,6 +3067,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x97: // STA [dir],y
@@ -2880,6 +3077,7 @@ public:
             WriteM(cregs.C);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x99: // STA abs,y
@@ -2887,6 +3085,7 @@ public:
             ResolveAddress(CPUAddressingMode::AbsY);
             WriteM(cregs.C);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2895,6 +3094,7 @@ public:
             ResolveAddress(CPUAddressingMode::AbsX);
             WriteM(cregs.C);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2903,6 +3103,7 @@ public:
             ResolveAddress(CPUAddressingMode::LongX);
             WriteM(cregs.C);
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
 
@@ -2913,6 +3114,7 @@ public:
             WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x8e: // STX abs
@@ -2920,6 +3122,7 @@ public:
             ResolveAddress(CPUAddressingMode::Abs);
             WriteX(cregs.X);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x96: // STX dir,y
@@ -2929,6 +3132,7 @@ public:
             WriteX(cregs.X);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2939,6 +3143,7 @@ public:
             WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2947,6 +3152,7 @@ public:
             ResolveAddress(CPUAddressingMode::Abs);
             WriteX(cregs.Y);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -2957,6 +3163,7 @@ public:
             WriteX(cregs.Y);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
 
@@ -2967,6 +3174,7 @@ public:
             WriteM(0);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x74: // STZ dir,x
@@ -2976,6 +3184,7 @@ public:
             WriteM(0);
             // No Flags
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x9c: // STZ abs
@@ -2983,6 +3192,7 @@ public:
             ResolveAddress(CPUAddressingMode::Abs);
             WriteM(0);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x9e: // STZ abs,x
@@ -2990,6 +3200,7 @@ public:
             ResolveAddress(CPUAddressingMode::AbsX);
             WriteM(0);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 #pragma endregion
@@ -3006,6 +3217,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xc3: // CMP stk,s
@@ -3019,6 +3231,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xc5: // CMP dir
@@ -3032,6 +3245,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xc7: // CMP [dir]
@@ -3045,6 +3259,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xc9: // CMP imm
@@ -3059,6 +3274,7 @@ public:
             flags.Z = !(imm & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
 
+            curCycle = 0;
             break;
         }
         case 0xcd: // CMP abs
@@ -3072,6 +3288,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xcf: // CMP long
@@ -3085,6 +3302,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0xd1: // CMP (dir),y
@@ -3098,6 +3316,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd2: // CMP (dir)
@@ -3111,6 +3330,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd3: // CMP (stk,s),y
@@ -3124,6 +3344,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd5: // CMP dir,x
@@ -3137,6 +3358,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd7: // CMP [dir],y
@@ -3150,6 +3372,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd9: // CMP abs,y
@@ -3163,6 +3386,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xdd: // CMP abs,x
@@ -3176,6 +3400,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0xdf: // CMP long,x
@@ -3189,6 +3414,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.Z = !(d & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 4;
+            curCycle = 0;
             break;
         }
         case 0xe0: // CPX imm
@@ -3202,6 +3428,7 @@ public:
             flags.Z = !(imm & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3 - flags.X;
+            curCycle = 0;
             break;
         }
         case 0xe4: // CPX dir
@@ -3214,6 +3441,7 @@ public:
             flags.Z = !(d & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xec: // CPX abs
@@ -3228,6 +3456,7 @@ public:
             flags.Z = !(d & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -3241,6 +3470,7 @@ public:
             flags.Z = !(imm & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3 - flags.X;
+            curCycle = 0;
             break;
         }
         case 0xc4: // CPY dir
@@ -3253,6 +3483,7 @@ public:
             flags.Z = !(d & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xcc: // CPY abs
@@ -3265,6 +3496,7 @@ public:
             flags.Z = !(d & (flags.X ? 0x00FF : 0xFFFF));
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x24: // BIT dir
@@ -3278,6 +3510,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.V = d & (flags.M ? 0x0040 : 0x4000);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x2c: // BIT abs
@@ -3290,6 +3523,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.V = d & (flags.M ? 0x0040 : 0x4000);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x34: // BIT dir,x
@@ -3301,6 +3535,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.V = d & (flags.M ? 0x0040 : 0x4000);
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x3c: // BIT abs,x
@@ -3312,6 +3547,7 @@ public:
             flags.N = d & (flags.M ? 0x0080 : 0x8000);
             flags.V = d & (flags.M ? 0x0040 : 0x4000);
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x89: // BIT imm
@@ -3321,6 +3557,7 @@ public:
             uint16 t = cregs.C & imm;
             flags.Z = !(t & (flags.M ? 0x00FF : 0xFFFF));
             cregs.PC += 3 - flags.M;
+            curCycle = 0;
             break;
         }
 
@@ -3334,6 +3571,7 @@ public:
             WriteM(d);
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x1c: // TRB abs
@@ -3346,6 +3584,7 @@ public:
             WriteM(d);
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
         case 0x04: // TSB dir
@@ -3358,6 +3597,7 @@ public:
             WriteM(d);
 
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x0c: // TSB abs
@@ -3370,6 +3610,7 @@ public:
             WriteM(d);
 
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -3383,6 +3624,7 @@ public:
             if (!flags.C)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xB0: // BCS
@@ -3392,6 +3634,7 @@ public:
             if (flags.C)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0xd0: // BNE rel8
@@ -3401,6 +3644,7 @@ public:
             if (!flags.Z)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x10: // BPL rel8
@@ -3410,6 +3654,7 @@ public:
             if (!flags.N)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x80: // BRA rel8
@@ -3417,6 +3662,7 @@ public:
             ResolveAddress(CPUAddressingMode::Rel8);
             signed char ll = ReadByte(addL);
             cregs.PC += 2 + ll;
+            curCycle = 0;
             break;
         }
         case 0xf0: // BEQ rel8
@@ -3427,6 +3673,7 @@ public:
                 cregs.PC += ll;
             cregs.PC += 2;
 
+            curCycle = 0;
             break;
         }
         case 0x30: // BMI
@@ -3436,6 +3683,7 @@ public:
             if (flags.N)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x70: // BVS rel8
@@ -3445,6 +3693,7 @@ public:
             if (flags.V)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x50: // BVC rel8
@@ -3454,6 +3703,7 @@ public:
             if (!flags.V)
                 cregs.PC += ll;
             cregs.PC += 2;
+            curCycle = 0;
             break;
         }
         case 0x82: // BRL rel16
@@ -3463,6 +3713,7 @@ public:
 
             cregs.PC += ll;
             cregs.PC += 3;
+            curCycle = 0;
             break;
         }
 
@@ -3470,6 +3721,7 @@ public:
         {
             ResolveAddress(CPUAddressingMode::Abs);
             cregs.PC = addL & 0x00FFFF;
+            curCycle = 0;
             break;
         }
 
@@ -3478,6 +3730,7 @@ public:
             ResolveAddress(CPUAddressingMode::Long);
             cregs.PC = addL & 0x00FFFF;
             cregs.K = (addL & 0xFF0000) >> 16;
+            curCycle = 0;
             break;
         }
 
@@ -3485,6 +3738,7 @@ public:
         {
             ResolveAddress(CPUAddressingMode::AbsPtr16);
             cregs.PC = addL & 0x00FFFF;
+            curCycle = 0;
             break;
         }
 
@@ -3496,6 +3750,7 @@ public:
             PushWord(cregs.PC + 2);
             // No Flags
             cregs.PC = addL;
+            curCycle = 0;
             break;
         }
         case 0xfc: // JSR (abs,x)
@@ -3509,6 +3764,7 @@ public:
             //  No Flags
             cregs.PC = addL;
 
+            curCycle = 0;
             break;
         }
         case 0x22: // JSL long
@@ -3518,6 +3774,7 @@ public:
             PushWord(cregs.PC + 3);
             cregs.PC = addL;
             cregs.K = addL >> 16;
+            curCycle = 0;
             break;
         }
         case 0x7c: // JMP (abs,x)
@@ -3526,6 +3783,7 @@ public:
             ResolveAddress(CPUAddressingMode::AbsXPtr16);
             cregs.PC = addL;
             // No Flags
+            curCycle = 0;
             break;
         }
         case 0xdc: // JMP [abs]
@@ -3533,12 +3791,14 @@ public:
             ResolveAddress(CPUAddressingMode::AbsPtr24);
             cregs.PC = addL & 0x00FFFF;
             cregs.K = (addL & 0xFF0000) >> 16;
+            curCycle = 0;
             break;
         }
         case 0x60: // RTS
         {
             cregs.PC = PopWord();
             cregs.PC += 1; // Intentional
+            curCycle = 0;
             break;
         }
         case 0x6B: // RTL
@@ -3546,6 +3806,7 @@ public:
             cregs.PC = PopWord();
             cregs.PC += 1; // Intentional
             cregs.K = Pop();
+            curCycle = 0;
             break;
         }
         case 0x40: // RTI
@@ -3554,6 +3815,7 @@ public:
             cregs.PC = PopWord();
             if (!flagE)
                 cregs.K = Pop();
+            curCycle = 0;
             break;
         }
 
@@ -3577,6 +3839,7 @@ public:
                 cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
                 cregs.PC += 3;
             }
+            curCycle = 0;
             break;
         }
         case 0x54: // MVN
@@ -3601,6 +3864,7 @@ public:
                 cregs.DBR = ReadByte(PCByteAhead(1)); // DBR = dest bank
                 cregs.PC += 3;
             }
+            curCycle = 0;
             break;
         }
 #pragma endregion
