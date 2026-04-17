@@ -98,7 +98,7 @@ void DumpRam()
     outFile.close();
 }
 
-// Every 20 steps is 1 masterClk
+// Every 32 steps is 1 masterClk
 uint64_t emuStep = 0;
 void emu()
 {
@@ -110,6 +110,7 @@ void emu()
     HTIMEL = 0xff;
     HTIMEH = 0x01;
     RDNMI = RDNMI & 0x7F;
+    pauseEmu = false;
 
     while (true) // Emulation Loop
     {
@@ -123,7 +124,7 @@ void emu()
         if (!dma->dmaActive)
         {
 
-            if (emuStep % (160 * 6) == 0)
+            if (!(emuStep & (256 * 8 -1)))
             {
                 runInst = false;
                 if (debug)
@@ -139,7 +140,7 @@ void emu()
             }
         }
 
-        if (emuStep % 160 == 0)
+        if (!(emuStep & 255))
         {
             dma->step(!hdmaRan);
             if (!hdmaRan)
@@ -148,15 +149,15 @@ void emu()
             }
         }
 
-        if (emuStep % 17 == 0)
+        if (emuStep % 28 == 0)
             APU::Step();
 
         // ctrl is read
-        if (emuStep % 160 == 0)
+        if (!(emuStep & 255))
             ctrlsys->step();
 
         vBlankEntryMoment = false;
-        if (emuStep % 80 == 0)
+        if (!(emuStep & 127))
         {
 
             ppu->step(); // every 341*262 = 89342 steps => 1 frame

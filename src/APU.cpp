@@ -115,10 +115,11 @@ namespace APU
         else // RAM or ROM FFC0 to FFFF based on reg 0x00F1
         {
             if(ramRomSel)
-                return arom[address-0xFFC0];
+                return arom[(address-0xFFC0)];
             else
                 return aram[address];
         }
+        return 0;
     }
     void SPCWrite(uint16 address, uint8 data)
     {

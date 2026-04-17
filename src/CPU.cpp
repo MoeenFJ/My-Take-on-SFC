@@ -506,7 +506,7 @@ public:
         PushWord(cregs.PC); // 16 Bit
         Push(flags);        // 8 Bit
 
-        cout << "------------NMI------------------" << endl;
+        //cout << "------------NMI------------------" << endl;
         uint16 nmi;
         cregs.K = 0;
         if (flagE)
@@ -534,7 +534,7 @@ public:
         PushWord(cregs.PC); // 16 Bit
         Push(flags);        // 8 Bit
 
-        cout << "------------IRQ------------------" << endl;
+        //cout << "------------IRQ------------------" << endl;
 
         uint16 irq;
         cregs.K = 0;
