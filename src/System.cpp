@@ -136,6 +136,7 @@ void emu()
                 }
 
                 cpu->cpuStep();
+
             }
         }
 
@@ -592,7 +593,7 @@ void WriteIO(add24 address, uint8 data)
     }
     else if (port >= 0x2144 && port <= 0x217F) // APU Mirrored
     {
-        APU::IOWrite(0x2140 | (port&0x03), data);
+        APU::IOWrite(0x2140 | (port & 0x03), data);
         return;
     }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
@@ -618,7 +619,7 @@ void WriteIO(add24 address, uint8 data)
         case 0x2180: // WMDATA
         {
             // TODO : check this later
-            add24 memAdd = 0x01FFFF & (WMADDH << 16 | WMADDM << 8 | WMADDL);
+            add24 memAdd =  (WMADDH << 16 | WMADDM << 8 | WMADDL);
             ram[memAdd] = data;
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
@@ -635,7 +636,7 @@ void WriteIO(add24 address, uint8 data)
             break;
         case 0x2183: // WMADDH
             WMADDH = data;
-            // WMADDH &= 0b00000001; // Make sure upper bits are 0 for later
+            WMADDH &= 0x01; // Make sure upper bits are 0 for later
             break;
 
         case 0x4016: // LCTRLREG1, Manual controller 1
@@ -682,7 +683,7 @@ void WriteIO(add24 address, uint8 data)
         // Some games really like to write into read-only regs. so here they are
         default:
 
-            cout << "Undefined IO Address " << hex << port << endl;
+            cout << "Undefined IO Address " << hex << address << endl;
             zeroWire = data;
             // pauseEmu = true;
             break;
@@ -708,7 +709,7 @@ uint8 ReadIO(add24 address)
     }
     else if (port >= 0x2144 && port <= 0x217F) // APU Mirrored
     {
-        return APU::IORead(0x2140 | (port&0x03));
+        return APU::IORead(0x2140 | (port & 0x03));
     }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
     {
@@ -728,7 +729,7 @@ uint8 ReadIO(add24 address)
         {
         case 0x2180: // WMDATA
         {
-            add24 memAdd = 0x01FFFF & (WMADDH << 16 | WMADDM << 8 | WMADDL);
+            add24 memAdd = (WMADDH << 16 | WMADDM << 8 | WMADDL);
             uint8 d = ram[memAdd];
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
@@ -771,9 +772,9 @@ uint8 ReadIO(add24 address)
 
         default:
 
-            cout << "Undefined IO Address " << hex << port << endl;
+            cout << "Undefined IO Address " << hex << address << endl;
 
-            //pauseEmu = true;
+            // pauseEmu = true;
             return zeroWire;
             break;
         }
@@ -853,16 +854,18 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
         // 4. SRAM (Typically Banks $70-$7D, Offsets $0000-$7FFF)
         if (bank >= 0x70 && bank <= 0x7D && offset < 0x8000)
         {
+            if (!rom->hasSram)
+            {
+                return zeroWire;
+            }
             // Calculate contiguous SRAM offset
             uint32_t sram_offset = ((bank - 0x70) * 0x8000) + offset;
+            sram_offset &= (rom->sramSize - 1);
 
-            if (sram_offset < rom->sramSize)
-            {
-                if (rd)
-                    return *(rom->sram + sram_offset);
-                else
-                    *(rom->sram + sram_offset) = data;
-            }
+            if (rd)
+                return *(rom->sram + sram_offset);
+            else
+                *(rom->sram + sram_offset) = data;
         }
         return zeroWire;
     }
@@ -904,16 +907,18 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
             }
             else if (offset >= 0x6000 && offset < 0x8000) // SRAM
             {
+                if (!rom->hasSram)
+                {
+                    return zeroWire;
+                }
                 // SRAM maps to 8KB chunks. Strip to 5 bits for continuous SRAM mapping.
                 uint32_t sram_offset = ((bank & 0x1F) * 0x2000) + (offset - 0x6000);
+                sram_offset &= (rom->sramSize - 1);
 
-                if (sram_offset < rom->sramSize)
-                {
-                    if (rd)
-                        return *(rom->sram + sram_offset);
-                    else
-                        *(rom->sram + sram_offset) = data;
-                }
+                if (rd)
+                    return *(rom->sram + sram_offset);
+                else
+                    *(rom->sram + sram_offset) = data;
             }
         }
 
@@ -921,7 +926,7 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
         // Remove the FastROM bit (e.g., $80-$FF becomes $00-$7F) to simplify math
         uint8_t rom_bank = bank & 0x7F;
 
-        if (rom_bank >= 0x40 && rom_bank <= 0x7D)
+        if (rom_bank >= 0x40 && rom_bank <= 0x7F)
         {
             // Full 64KB banks mapped here
             uint32_t rom_offset = ((rom_bank - 0x40) * 0x10000) + offset;
@@ -934,12 +939,12 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
 
             if (rom_offset < rom->romSize)
             {
-                
+
                 if (rd)
                     return *(rom->rom + rom_offset);
                 else
                 {
-                    cout << "Rom at : "<< hex << rom_offset << endl;
+                    cout << "Rom at : " << hex << rom_offset << endl;
                     cout << "Writing to ROM?! I don't think so." << endl;
                     pauseEmu = true;
                 }
@@ -1006,16 +1011,19 @@ int main(int argc, char *argv[])
     ss << rom->title << ".srm";
     ifstream sramFile(ss.str(), std::ios::binary);
 
-    bool sramExists = true;
-    if (!sramFile.is_open())
+    if (rom->hasSram)
     {
-        sramExists = false;
+        bool sramExists = true;
+        if (!sramFile.is_open())
+        {
+            sramExists = false;
+        }
+        if (sramExists)
+        {
+            sramFile.read(reinterpret_cast<char *>(rom->sram), rom->sramSize);
+        }
+        sramFile.close();
     }
-    if (sramExists)
-    {
-        sramFile.read(reinterpret_cast<char *>(rom->sram), rom->sramSize);
-    }
-    sramFile.close();
 
     cpu = new CPU(C65Read, C65Write);
 
@@ -1023,6 +1031,7 @@ int main(int argc, char *argv[])
     dma = new DMA(DMARead, DMAWrite);
     mdu = new MDUnit();
     ctrlsys = new ControllerSystem();
+
 
     cpuTraceFile = ofstream("CPUTrace.txt");
 

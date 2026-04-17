@@ -16,8 +16,9 @@ class Cartridge
 public:
     unsigned char *rom;
     unsigned char *sram;
+    bool hasSram = false;
     int romSize;
-    int sramSize;
+    int sramSize=0;
     ROMMapType mapType;
     char title[21];
     bool speed; // 0=Slow , 1=Fast
@@ -89,19 +90,18 @@ public:
         memcpy(&readByte, this->rom + headerLoc + 21, 1); // Speed And Type - 0xFFD5
         this->speed = readByte & 0b00010000;
 
-
         memcpy(&readByte, this->rom + headerLoc + 22, 1); // 0xFFD6
 
         cout << "Chipset settings : " << hex << (uint16)readByte << endl;
+        if (readByte == 0x02)
+        {
+            hasSram = true;
+            memcpy(&readByte, this->rom + headerLoc + 24, 1); // SramSize - 0xFFD8
 
-        memcpy(&readByte, this->rom + headerLoc + 24, 1); // SramSize - 0xFFD8
-
-        this->sramSize = 1 << (readByte + 10);
-        this->sram = (uint8_t *)malloc(this->sramSize);
-
-        
-
-        
+            this->sramSize = 1 << (readByte + 10);
+            cout << "Sram size : " << dec << sramSize << endl;
+            this->sram = (uint8_t *)malloc(this->sramSize);
+        }
 
         if (i % 2)
         {
