@@ -92,6 +92,8 @@ public:
 
         memcpy(&readByte, this->rom + headerLoc + 22, 1); // 0xFFD6
 
+        cout << "Chipset settings : " << hex << (uint16)readByte << endl;
+
         memcpy(&readByte, this->rom + headerLoc + 24, 1); // SramSize - 0xFFD8
 
         this->sramSize = 1 << (readByte + 10);

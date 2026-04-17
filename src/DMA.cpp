@@ -757,10 +757,9 @@ public:
                     add24 addH = (tableAddress[i] + 2) & 0x00FFFF;
                     addH |= (regs.DMAABADDB[i] << 16);
 
-                    
-                    cout << "indir add add : " << hex  << (uint16)addL << endl;
+                    cout << "indir add add : " << hex << (uint16)addL << endl;
                     uint16 addr = ReadByte(addL) | (ReadByte(addH) << 8);
-                    cout << "indir add : " << hex  << addr << endl;
+                    cout << "indir add : " << hex << addr << endl;
                     dataAddr = (addr + tablePtr[i]) & 0x00FFFF;
                     dataAddr |= (regs.HDMAADDB[i] << 16);
                 }
@@ -847,14 +846,12 @@ public:
                         tableAddress[i] += tablePtr[i] + 1;
                         tableAddress[i] &= 0x00FFFF;
                         tableAddress[i] |= regs.DMAABADDB[i] << 16;
-                     
                     }
                     else
                     {
                         tableAddress[i] += 3;
                         tableAddress[i] &= 0x00FFFF;
                         tableAddress[i] |= regs.DMAABADDB[i] << 16;
-                     
                     }
 
                     line = ReadByte(tableAddress[i]);
@@ -914,15 +911,15 @@ public:
             if (num == 0)
                 num = 0x10000;
 
-            // cout << "-=-=-=-=-=-=-=-=-=DMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
-            // cout << "type : " << dec << (uint16)type << endl;
-            // cout << "fixed : " << (fixedAddr ? "fixed" : "change") << endl;
-            // cout << "inc : " << (incAddr ? "+" : "-") << endl;
-            // cout << "dir : " << (dir ? "B->A" : "A->B") << endl;
-            // cout << "b addr : " << hex << bAddr << endl;
-            // cout << "a addr : " << hex << aAddr << endl;
-            // cout << "bytes : " << dec << num << endl;
-            // cout << "done : " << dec << transferred[i] << endl;
+            cout << "-=-=-=-=-=-=-=-=-=DMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
+            cout << "type : " << dec << (uint16)type << endl;
+            cout << "fixed : " << (fixedAddr ? "fixed" : "change") << endl;
+            cout << "inc : " << (decAddr ? "-" : "+") << endl;
+            cout << "dir : " << (dir ? "B->A" : "A->B") << endl;
+            cout << "b addr : " << hex << bAddr << endl;
+            cout << "a addr : " << hex << aAddr << endl;
+            cout << "bytes : " << dec << num << endl;
+            cout << "done : " << dec << transferred[i] << endl;
             // if(bAddr == 0x2116 )
             //     cin.get();
 
@@ -930,6 +927,9 @@ public:
                                        : type == 2   ? 0
                                        : type == 3   ? (transferred[i] >> 1) % 2
                                        : type == 4   ? transferred[i] % 4
+                                       : type == 5   ? transferred[i] % 2
+                                       : type == 6   ? 0
+                                       : type == 7   ? (transferred[i] >> 1) % 2
                                                      : 0;
             add24 bEffAdd = (bAddr + offset);
             add24 aEffAdd = (regs.DMAABADDB[i] << 16) | aAddr;

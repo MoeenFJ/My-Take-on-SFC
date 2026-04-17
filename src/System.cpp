@@ -98,7 +98,6 @@ void DumpRam()
     outFile.close();
 }
 
-// Every 32 steps is 1 masterClk
 uint64_t emuStep = 0;
 void emu()
 {
@@ -110,7 +109,7 @@ void emu()
     HTIMEL = 0xff;
     HTIMEH = 0x01;
     RDNMI = RDNMI & 0x7F;
-    pauseEmu = false;
+    pauseEmu = true;
 
     while (true) // Emulation Loop
     {
@@ -124,7 +123,7 @@ void emu()
         if (!dma->dmaActive)
         {
 
-            if (!(emuStep & (256 * 8 -1)))
+            if (emuStep % 48 == 0)
             {
                 runInst = false;
                 if (debug)
@@ -140,7 +139,7 @@ void emu()
             }
         }
 
-        if (!(emuStep & 255))
+        if (emuStep % 8 == 0)
         {
             dma->step(!hdmaRan);
             if (!hdmaRan)
@@ -149,15 +148,14 @@ void emu()
             }
         }
 
-        if (emuStep % 28 == 0)
-            APU::Step();
+        APU::Step();
 
         // ctrl is read
-        if (!(emuStep & 255))
+        if (emuStep % 8 == 0)
             ctrlsys->step();
 
         vBlankEntryMoment = false;
-        if (!(emuStep & 127))
+        if (emuStep % 4 == 0)
         {
 
             ppu->step(); // every 341*262 = 89342 steps => 1 frame
@@ -592,6 +590,11 @@ void WriteIO(add24 address, uint8 data)
         APU::IOWrite(port, data);
         return;
     }
+    else if (port >= 0x2144 && port <= 0x217F) // APU Mirrored
+    {
+        APU::IOWrite(0x2140 | (port&0x03), data);
+        return;
+    }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
     {
         dma->IOWrite(port, data);
@@ -615,8 +618,8 @@ void WriteIO(add24 address, uint8 data)
         case 0x2180: // WMDATA
         {
             // TODO : check this later
-            add24 memAdd = 0x7E0000 & (WMADDH << 16 | WMADDM << 8 | WMADDL);
-            BusAccess(memAdd, data, false);
+            add24 memAdd = 0x01FFFF & (WMADDH << 16 | WMADDM << 8 | WMADDL);
+            ram[memAdd] = data;
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
             WMADDM = (memAdd & 0x00FF00) >> 8;
@@ -703,6 +706,10 @@ uint8 ReadIO(add24 address)
     {
         return APU::IORead(port);
     }
+    else if (port >= 0x2144 && port <= 0x217F) // APU Mirrored
+    {
+        return APU::IORead(0x2140 | (port&0x03));
+    }
     else if (port >= 0x4300 && port <= 0x437a) // DMA
     {
         return dma->IORead(port);
@@ -721,12 +728,12 @@ uint8 ReadIO(add24 address)
         {
         case 0x2180: // WMDATA
         {
-            add24 memAdd = 0x7E0000 | WMADDH << 16 | WMADDM << 8 | WMADDL;
-            uint8 d = BusAccess(memAdd, NULL, true);
+            add24 memAdd = 0x01FFFF & (WMADDH << 16 | WMADDM << 8 | WMADDL);
+            uint8 d = ram[memAdd];
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
             WMADDM = (memAdd & 0x00FF00) >> 8;
-            WMADDH = (memAdd & 0x010000) >> 16;
+            WMADDH = (memAdd & 0xFF0000) >> 16;
             return d;
             break;
         }
@@ -766,7 +773,7 @@ uint8 ReadIO(add24 address)
 
             cout << "Undefined IO Address " << hex << port << endl;
 
-            pauseEmu = true;
+            //pauseEmu = true;
             return zeroWire;
             break;
         }
@@ -927,11 +934,12 @@ uint8 BusAccess(add24 address, uint8 data, bool rd = false)
 
             if (rom_offset < rom->romSize)
             {
-                // cout << "Rom Read at : "<< hex << rom_offset << endl;
+                
                 if (rd)
                     return *(rom->rom + rom_offset);
                 else
                 {
+                    cout << "Rom at : "<< hex << rom_offset << endl;
                     cout << "Writing to ROM?! I don't think so." << endl;
                     pauseEmu = true;
                 }

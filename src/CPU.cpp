@@ -3567,8 +3567,8 @@ public:
                 src = srcB | cregs.X;
                 dest = dstB | cregs.Y;
                 WriteByte(dest, ReadByte(src));
-                cregs.X -= 1;
-                cregs.Y -= 1;
+                UpdateX(cregs.X - 1);
+                UpdateY(cregs.Y - 1);
                 cregs.C -= 1;
             }
 
@@ -3590,9 +3590,9 @@ public:
                 dest = dstB | cregs.Y;
                 // cout << "MVN : " << hex << src << " --> " << dest << " : " << hex << (uint16)ReadByte(src) << endl;
                 WriteByte(dest, ReadByte(src));
-                cregs.X += 1;
+                UpdateX(cregs.X + 1);
+                UpdateY(cregs.Y + 1);
 
-                cregs.Y += 1;
                 cregs.C -= 1;
             }
 

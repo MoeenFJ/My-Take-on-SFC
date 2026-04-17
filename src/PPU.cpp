@@ -234,6 +234,14 @@ public:
     uint8 bgFilter = 0;
     bool pauseEmu = false;
 
+    void doMult()
+    {
+        int32_t mult = (int16_t)mode7A * (int8_t)(mode7B & 0x00FF);
+        regs.MPYL = mult & 0x000000FF;
+        regs.MPYM = (mult & 0x0000FF00) >> 8;
+        regs.MPYH = (mult & 0x00FF0000) >> 16;
+    }
+
     void IncVMADD()
     {
         uint8 inc = regs.VMAINC & 0b00000011;
@@ -307,6 +315,7 @@ public:
         case 0x2136: // MPYH
             return this->regs.MPYH;
             break;
+
         case 0x2137: // SLHV
 
             hCounterLatch = hCounter;
@@ -651,6 +660,7 @@ public:
             {
                 mode7B = (mode7B & 0xFF00) | data;
                 mode7BHL = true;
+                doMult();
             }
             else // High
             {
@@ -1576,8 +1586,6 @@ public:
                 mainB = (mainB + (addSub ? -B : B)) >> (addSubHalf ? 1 : 0);
             }
 
-       
-
             if (bgFilter == 1)
                 mainScreenCol = bg1col;
             else if (bgFilter == 2)
@@ -1593,7 +1601,6 @@ public:
             mainG = (mainG << 3) / (16 - fadeValue);
             mainB = (mainB << 3) / (16 - fadeValue);
 
-         
             // cout << "RGB : (" << dec << (unsigned int)R << "," << (unsigned int)G << "," << (unsigned int)B << ")" << endl;
 
             fb[FB_WIDTH * vCounter + hCounter] = forceBlank ? 0 : MFB_ARGB(255, mainR, mainG, mainB);
