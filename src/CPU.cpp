@@ -674,7 +674,7 @@ public:
                 flags.V = (((op1 ^ op2) & (op1 ^ binDiff) & 0x8000) != 0);
                 flags.C = (binDiff >= 0);
 
-                // Cascaded nibble subtraction
+               // Cascaded nibble subtraction
                 int al = (op1 & 0x000F) - (op2 & 0x000F) - carryIn;
                 int ah = ((op1 >> 4) & 0x000F) - ((op2 >> 4) & 0x000F) - (al < 0 ? 1 : 0);
                 int bl = ((op1 >> 8) & 0x000F) - ((op2 >> 8) & 0x000F) - (ah < 0 ? 1 : 0);

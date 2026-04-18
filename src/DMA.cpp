@@ -48,7 +48,7 @@ public:
     uint8 hdmaType[8] = {0};
     bool hdmaCont[8] = {0};
     uint8 hdmaCount[8] = {0};
-    uint8 hdmaDone[8] = {0};
+
 
     uint8 IORead(add24 address)
     {
@@ -684,7 +684,7 @@ public:
                     hdmaCount[i] = 128;
                 hdmaCont[i] = line & 0b10000000;
 
-                hdmaDone[i] = 0;
+          
                 tablePtr[i] = 0;
             }
 
@@ -743,8 +743,8 @@ public:
                     continue;
 
                 uint8 data = 0;
-
                 add24 dataAddr;
+
                 if (absAddr[i])
                 {
                     dataAddr = (tablePtr[i] + tableAddress[i] + 1) & 0x00FFFF;
@@ -784,6 +784,7 @@ public:
                     tablePtr[i]++;
                     break;
                 }
+                case 6:
                 case 2:
                 {
 
@@ -795,6 +796,7 @@ public:
                     tablePtr[i]++;
                     break;
                 }
+                case 7:
                 case 3:
                 {
 
@@ -830,13 +832,30 @@ public:
                     tablePtr[i]++;
                     break;
                 }
+                case 5:
+                {
+                    data = ReadByte(dataAddr);
+
+                    WriteByte(hdmaDestAddr[i], data);
+                    tablePtr[i]++;
+                    data = ReadByte(dataAddr + 1);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
+                    tablePtr[i]++;
+                    data = ReadByte(dataAddr + 2);
+                    WriteByte(hdmaDestAddr[i], data);
+                    tablePtr[i]++;
+                    data = ReadByte(dataAddr + 3);
+                    WriteByte(hdmaDestAddr[i] + 1, data);
+                    tablePtr[i]++;
+                    break;
+                }
 
                 default:
                     break;
                 }
 
                 hdmaCount[i] -= 1;
-                hdmaDone[i] += 1;
+             
 
                 if (hdmaCount[i] == 0)
                 {
@@ -865,7 +884,6 @@ public:
                         if (hdmaCount[i] == 0x00)
                             hdmaCount[i] = 128;
                         hdmaCont[i] = line & 0b10000000;
-                        hdmaDone[i] = 0;
                         tablePtr[i] = 0;
                     }
                 }
@@ -876,18 +894,18 @@ public:
                     tablePtr[i] = 0;
                 }
 
-                cout << "-=-=-=-=-=-=-=-=-=HDMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
-                cout << "type : " << dec << (uint16)hdmaType[i] << endl;
-                cout << "abs/indir : " << (absAddr[i] ? "abs" : "indir") << endl;
-                cout << "rep : " << (hdmaCont[i] ? "y" : "n") << endl;
-                cout << "b addr : " << hex << hdmaDestAddr[i] << endl;
-                cout << "a table : " << hex << tableAddress[i] << endl;
-                cout << "a bank : " << hex << (uint16)regs.DMAABADDB[i] << endl;
-                cout << "indir bank : " << hex << (uint16)regs.HDMAADDB[i] << endl;
-                cout << "a tab ptr : " << dec << tablePtr[i] << endl;
-                cout << "data addr : " << hex << dataAddr << endl;
-                cout << "counter : " << dec << (uint16)hdmaCount[i] << endl;
-                cout << "done : " << dec << (uint16)hdmaDone[i] << endl;
+                //cout << "-=-=-=-=-=-=-=-=-=HDMA[" << i << "]=-=-=-=-=-=-=-=-=-=" << endl;
+                //cout << "type : " << dec << (uint16)hdmaType[i] << endl;
+                //cout << "abs/indir : " << (absAddr[i] ? "abs" : "indir") << endl;
+                //cout << "rep : " << (hdmaCont[i] ? "y" : "n") << endl;
+                //cout << "b addr : " << hex << hdmaDestAddr[i] << endl;
+                //cout << "a table : " << hex << tableAddress[i] << endl;
+                //cout << "a bank : " << hex << (uint16)regs.DMAABADDB[i] << endl;
+                //cout << "indir bank : " << hex << (uint16)regs.HDMAADDB[i] << endl;
+                //cout << "a tab ptr : " << dec << tablePtr[i] << endl;
+                //cout << "data addr : " << hex << dataAddr << endl;
+                //cout << "counter : " << dec << (uint16)hdmaCount[i] << endl;
+            
             }
         }
         else

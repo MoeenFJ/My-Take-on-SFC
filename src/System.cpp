@@ -163,7 +163,7 @@ void emu()
 
             if (ppu->hCounter == 0 && ppu->vCounter == 225) // Start of VBlank
             {
-                dma->HDMAEN = 0;
+                //dma->HDMAEN = 0;
                 vBlankEntryMoment = true;
                 runVBlank = false;
                 RDNMI = 0b10000000;

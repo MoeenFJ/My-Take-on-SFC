@@ -234,6 +234,11 @@ public:
     uint8 bgFilter = 0;
     bool pauseEmu = false;
 
+    uint16 VRAMRead(uint16 add)
+    {
+        return vram[TranslateVRAMAddress(add&0x7FFF)];
+    }
+
     void doMult()
     {
         int32_t mult = (int16_t)mode7A * (int8_t)(mode7B & 0x00FF);
@@ -263,7 +268,7 @@ public:
 
             break;
         }
-        // vramPtr &= 0x7FFF;
+        vramPtr &= 0x7FFF; //Bit 15 of vram address is ignored.
     }
     uint16 TranslateVRAMAddress(uint16 addr)
     {
@@ -301,10 +306,6 @@ public:
         switch (address)
         {
 
-            // TODO : check if write only
-        case 0x211A: // M7SEL
-            return this->regs.M7SEL;
-            break;
 
         case 0x2134: // MPYL
             return this->regs.MPYL;
@@ -812,35 +813,13 @@ public:
             break;
         case 0x2132: // COLDATA
         {
-            uint8 col = data >> 5;
-            uint8 brt = data & 0b00011111;
-            switch (col)
-            {
-            case 0b111: // Black or white
-                constColor = brt | (brt << 5) | (brt << 10);
-                break;
+            if (data & 0x20)
+                constColor = (constColor & 0x7C00) | (data & 0x1F); // Red
+            if (data & 0x40)
+                constColor = (constColor & 0x03FF) | ((data & 0x1F) << 5); // Green
+            if (data & 0x80)
+                constColor = (constColor & 0x00FF) | ((data & 0x1F) << 10); // Blue
 
-            // Red
-            case 0b110:
-            case 0b001:
-                constColor = brt;
-                break;
-
-            // Green
-            case 0b101:
-            case 0b010:
-                constColor = brt << 5;
-                break;
-
-            // Blue
-            case 0b011:
-            case 0b100:
-                constColor = brt << 10;
-                break;
-
-            default:
-                break;
-            }
             break;
         }
         case 0x2133: // SETINI
@@ -998,13 +977,13 @@ public:
 
                     uint16 objCharAddr = (table ? OBJChrTable2BaseAddr : OBJChrTable1BaseAddr) + (chr << 4); // Obj size later plays a part in here
 
-                    colorIdx |= ((vram[objCharAddr + y] >> (7 - x)) & 0x01);
+                    colorIdx |= ((VRAMRead(objCharAddr + y) >> (7 - x)) & 0x01);
 
-                    colorIdx |= ((vram[objCharAddr + y] >> (15 - x)) & 0x01) << 1;
+                    colorIdx |= ((VRAMRead(objCharAddr + y) >> (15 - x)) & 0x01) << 1;
 
-                    colorIdx |= ((vram[objCharAddr + y + 8] >> (7 - x)) & 0x01) << 2;
+                    colorIdx |= ((VRAMRead(objCharAddr + y + 8) >> (7 - x)) & 0x01) << 2;
 
-                    colorIdx |= ((vram[objCharAddr + y + 8] >> (15 - x)) & 0x01) << 3;
+                    colorIdx |= ((VRAMRead(objCharAddr + y + 8) >> (15 - x)) & 0x01) << 3;
 
                     if (prior >= ojbprior && colorIdx != 0)
                     {
@@ -1041,7 +1020,7 @@ public:
                 // (32*32*tileS)
                 uint16 tileNumber = (tileS << 10) + (tileY << 5) + tileX;
 
-                uint16 tileData = vram[BG1BaseAddr + tileNumber];
+                uint16 tileData = VRAMRead(BG1BaseAddr + tileNumber);
 
                 if (tileData & 0b0100000000000000)
                     x = 7 - x;
@@ -1058,21 +1037,21 @@ public:
 
                 uint8 colorIdx = 0;
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (7 - x)) & 0x01);
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (7 - x)) & 0x01);
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (15 - x)) & 0x01) << 1;
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (15 - x)) & 0x01) << 1;
 
                 if (mode > 0)
                 {
-                    colorIdx |= ((vram[tileCharAddr + y + 8] >> (7 - x)) & 0x01) << 2;
-                    colorIdx |= ((vram[tileCharAddr + y + 8] >> (15 - x)) & 0x01) << 3;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 8) >> (7 - x)) & 0x01) << 2;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 8) >> (15 - x)) & 0x01) << 3;
                 }
                 if (mode == 3 || mode == 4)
                 {
-                    colorIdx |= ((vram[tileCharAddr + y + 16] >> (7 - x)) & 0x01) << 4;
-                    colorIdx |= ((vram[tileCharAddr + y + 16] >> (15 - x)) & 0x01) << 5;
-                    colorIdx |= ((vram[tileCharAddr + y + 24] >> (7 - x)) & 0x01) << 6;
-                    colorIdx |= ((vram[tileCharAddr + y + 24] >> (15 - x)) & 0x01) << 7;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 16) >> (7 - x)) & 0x01) << 4;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 16) >> (15 - x)) & 0x01) << 5;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 24) >> (7 - x)) & 0x01) << 6;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 24) >> (15 - x)) & 0x01) << 7;
                 }
                 bg1opaque = colorIdx;
 
@@ -1137,14 +1116,14 @@ public:
 
                 uint16 tileNumber = (tileY << 7) + tileX;
 
-                // Do we need BG1BaseAddr here?
-                uint16 tileData = vram[tileNumber];
+                // Mode7's base is always 0x0000
+                uint16 tileData = VRAMRead(tileNumber);
 
                 uint16 chrName = tileData & 0x00FF;
 
                 uint16 tileCharAddr = (chrName << 6);
 
-                uint8 colorIdx = (vram[tileCharAddr + (y << 3) + x] & 0xFF00) >> 8;
+                uint8 colorIdx = (VRAMRead(tileCharAddr + (y << 3) + x) & 0xFF00) >> 8;
 
                 bg1opaque = colorIdx;
                 bg1col = directColor ? colorIdx : cgram[colorIdx];
@@ -1176,7 +1155,7 @@ public:
                 // (32*32*tileS)
                 uint16 tileNumber = (tileS * 32 * 32) + (tileY << 5) + tileX;
 
-                uint16 tileData = vram[BG2BaseAddr + tileNumber];
+                uint16 tileData = VRAMRead(BG2BaseAddr + tileNumber);
 
                 if (tileData & 0b0100000000000000)
                     x = 7 - x;
@@ -1194,14 +1173,14 @@ public:
 
                 uint8 colorIdx = 0;
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (7 - x)) & 0x01);
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (7 - x)) & 0x01);
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (15 - x)) & 0x01) << 1;
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (15 - x)) & 0x01) << 1;
 
                 if (mode == 1 || mode == 2 || mode == 3)
                 {
-                    colorIdx |= ((vram[tileCharAddr + y + 8] >> (7 - x)) & 0x01) << 2;
-                    colorIdx |= ((vram[tileCharAddr + y + 8] >> (15 - x)) & 0x01) << 3;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 8) >> (7 - x)) & 0x01) << 2;
+                    colorIdx |= ((VRAMRead(tileCharAddr + y + 8) >> (15 - x)) & 0x01) << 3;
                 }
 
                 uint16 colAdd;
@@ -1259,7 +1238,7 @@ public:
                 // (32*32*tileS)
                 uint16 tileNumber = (tileS << 10) + (tileY << 5) + tileX;
 
-                uint16 tileData = vram[BG3BaseAddr + tileNumber];
+                uint16 tileData = VRAMRead(BG3BaseAddr + tileNumber);
 
                 if (tileData & 0b0100000000000000)
                     x = 7 - x;
@@ -1274,9 +1253,9 @@ public:
 
                 uint8 colorIdx = 0;
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (7 - x)) & 0x01);
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (7 - x)) & 0x01);
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (15 - x)) & 0x01) << 1;
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (15 - x)) & 0x01) << 1;
 
                 uint16 colAdd;
 
@@ -1312,7 +1291,7 @@ public:
                 // (32*32*tileS)
                 uint16 tileNumber = (tileS << 10) + (tileY << 5) + tileX;
 
-                uint16 tileData = vram[BG4BaseAddr + tileNumber];
+                uint16 tileData = VRAMRead(BG4BaseAddr + tileNumber);
 
                 if (tileData & 0b0100000000000000)
                     x = 7 - x;
@@ -1327,9 +1306,9 @@ public:
 
                 uint8 colorIdx = 0;
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (7 - x)) & 0x01);
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (7 - x)) & 0x01);
 
-                colorIdx |= ((vram[tileCharAddr + y] >> (15 - x)) & 0x01) << 1;
+                colorIdx |= ((VRAMRead(tileCharAddr + y) >> (15 - x)) & 0x01) << 1;
 
                 uint16 colAdd;
 
@@ -1568,24 +1547,6 @@ public:
                 }
             }
 
-            uint8 mainR = ((mainScreenCol & 0b0000000000011111) >> 0);
-            uint8 mainG = ((mainScreenCol & 0b0000001111100000) >> 5);
-            uint8 mainB = ((mainScreenCol & 0b0111110000000000) >> 10);
-
-            uint16 selectedCol = constColorSel ? constColor : subScreenCol;
-            uint8 R = (selectedCol & 0b0000000000011111) >> 0;
-            uint8 G = (selectedCol & 0b0000001111100000) >> 5;
-            uint8 B = (selectedCol & 0b0111110000000000) >> 10;
-
-            if ((selectedLayer == 0 && bdpAddSub) || (selectedLayer == 1 && bg1AddSub) || (selectedLayer == 2 && bg2AddSub) ||
-                (selectedLayer == 3 && bg3AddSub) || (selectedLayer == 4 && bg4AddSub) || (selectedLayer == 5 && objAddSub))
-            {
-
-                mainR = (mainR + (addSub ? -R : R)) >> (addSubHalf ? 1 : 0);
-                mainG = (mainG + (addSub ? -G : G)) >> (addSubHalf ? 1 : 0);
-                mainB = (mainB + (addSub ? -B : B)) >> (addSubHalf ? 1 : 0);
-            }
-
             if (bgFilter == 1)
                 mainScreenCol = bg1col;
             else if (bgFilter == 2)
@@ -1596,6 +1557,35 @@ public:
                 mainScreenCol = bg4col;
             else if (bgFilter == 5)
                 mainScreenCol = objcol;
+
+            int16_t mainR = ((mainScreenCol & 0b0000000000011111) >> 0);
+            int16_t mainG = ((mainScreenCol & 0b0000001111100000) >> 5);
+            int16_t mainB = ((mainScreenCol & 0b0111110000000000) >> 10);
+
+            uint16 selectedCol = constColorSel ? constColor : subScreenCol;
+            uint8 R = (selectedCol & 0b0000000000011111) >> 0;
+            uint8 G = (selectedCol & 0b0000001111100000) >> 5;
+            uint8 B = (selectedCol & 0b0111110000000000) >> 10;
+
+            if ((selectedLayer == 0 && bdpAddSub) || (selectedLayer == 1 && bg1AddSub) || (selectedLayer == 2 && bg2AddSub) ||
+                (selectedLayer == 3 && bg3AddSub) || (selectedLayer == 4 && bg4AddSub) || (selectedLayer == 5 && objAddSub))
+            {
+
+                mainR = mainR + (addSub ? -R : R);
+                mainR = mainR > 31 ? 31 : mainR;
+                mainR = mainR < 0 ? 0 : mainR;
+                mainR = mainR >> (addSubHalf ? 1 : 0);
+
+                mainG = mainG + (addSub ? -G : G);
+                mainG = mainG > 31 ? 31 : mainG;
+                mainG = mainG < 0 ? 0 : mainG;
+                mainG = mainG >> (addSubHalf ? 1 : 0);
+
+                mainB = mainB + (addSub ? -B : B);
+                mainB = mainB > 31 ? 31 : mainB;
+                mainB = mainB < 0 ? 0 : mainB;
+                mainB = mainB >> (addSubHalf ? 1 : 0);
+            }
 
             mainR = (mainR << 3) / (16 - fadeValue);
             mainG = (mainG << 3) / (16 - fadeValue);
