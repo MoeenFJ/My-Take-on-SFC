@@ -123,7 +123,7 @@ void emu()
         if (!dma->dmaActive)
         {
 
-            if (emuStep % 48 == 0)
+            if (emuStep % 12 == 0)
             {
                 runInst = false;
                 if (debug)
@@ -136,11 +136,10 @@ void emu()
                 }
 
                 cpu->cpuStep();
-
             }
         }
 
-        if (emuStep % 8 == 0)
+        if (emuStep % 2 == 0)
         {
             dma->step(!hdmaRan);
             if (!hdmaRan)
@@ -149,93 +148,89 @@ void emu()
             }
         }
 
-        APU::Step();
+        if (emuStep % 6 == 0)
+            APU::Step();
 
-        // ctrl is read
-        if (emuStep % 8 == 0)
+        if (emuStep % 2 == 0)
             ctrlsys->step();
 
         vBlankEntryMoment = false;
-        if (emuStep % 4 == 0)
+
+        ppu->step(); // every 341*262 = 89342 steps => 1 frame
+
+        if (ppu->hCounter == 0 && ppu->vCounter == 225) // Start of VBlank
         {
+            vBlankEntryMoment = true;
+            runVBlank = false;
+            RDNMI = 0b10000000;
+            if (NMITIMEN & 0b10000000) // NMI is enabled
+                cpu->invokeNMI();
 
-            ppu->step(); // every 341*262 = 89342 steps => 1 frame
-
-            if (ppu->hCounter == 0 && ppu->vCounter == 225) // Start of VBlank
+            for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
             {
-                //dma->HDMAEN = 0;
-                vBlankEntryMoment = true;
-                runVBlank = false;
-                RDNMI = 0b10000000;
-                if (NMITIMEN & 0b10000000) // NMI is enabled
-                    cpu->invokeNMI();
-
-                for (int y = 0; y < FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y++)
+                for (int x = 0; x < WIN_WIDTH; x++)
                 {
-                    for (int x = 0; x < WIN_WIDTH; x++)
-                    {
-                        window_fb[y * WIN_WIDTH + x] = ppu->fb[(y / (WIN_WIDTH / FB_WIDTH)) * FB_WIDTH + (x / (WIN_WIDTH / FB_WIDTH))];
-                    }
+                    window_fb[y * WIN_WIDTH + x] = ppu->fb[(y / (WIN_WIDTH / FB_WIDTH)) * FB_WIDTH + (x / (WIN_WIDTH / FB_WIDTH))];
                 }
-                for (int y = FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y < (FB_HEIGHT + 1) * (WIN_WIDTH / FB_WIDTH); y++)
+            }
+            for (int y = FB_HEIGHT * (WIN_WIDTH / FB_WIDTH); y < (FB_HEIGHT + 1) * (WIN_WIDTH / FB_WIDTH); y++)
+            {
+                for (int x = 0; x < WIN_WIDTH; x++)
                 {
-                    for (int x = 0; x < WIN_WIDTH; x++)
-                    {
 
-                        uint16 col = ppu->cgram[x / (WIN_WIDTH / FB_WIDTH)];
+                    uint16 col = ppu->cgram[x / (WIN_WIDTH / FB_WIDTH)];
 
-                        uint8 R = (col & 0b0000000000011111) << 3;
-                        uint8 G = (col & 0b0000001111100000) >> 2;
-                        uint8 B = (col & 0b0111110000000000) >> 7;
+                    uint8 R = (col & 0b0000000000011111) << 3;
+                    uint8 G = (col & 0b0000001111100000) >> 2;
+                    uint8 B = (col & 0b0111110000000000) >> 7;
 
-                        window_fb[y * WIN_WIDTH + x] = MFB_ARGB(255, R, G, B);
-                    }
+                    window_fb[y * WIN_WIDTH + x] = MFB_ARGB(255, R, G, B);
                 }
-
-                mfb_update_ex(window, window_fb, WIN_WIDTH, WIN_HEIGHT);
-                mfb_set_title(window, to_string(ppu->frameCount).c_str());
-                mfb_wait_sync(window);
-            }
-            if (ppu->vCounter == 261 && ppu->hCounter == 340) // End of VBlank
-            {
-                RDNMI = 0b00000000;
-            }
-            if (ppu->vCounter < 225 && ppu->hCounter == 256) // Start of HBlank
-            {
-                hdmaRan = false;
-                runHBlank = false;
-            }
-            if (ppu->hCounter == 0 && ppu->vCounter == 0) // Start of Frame
-            {
-                dma->initializeHDMA();
             }
 
-            // H-V Timer IRQ
-            uint8 type = (NMITIMEN & 0b00110000) >> 4;
+            mfb_update_ex(window, window_fb, WIN_WIDTH, WIN_HEIGHT);
+            mfb_set_title(window, to_string(ppu->frameCount).c_str());
+            mfb_wait_sync(window);
+        }
+        if (ppu->vCounter == 261 && ppu->hCounter == 340) // End of VBlank
+        {
+            RDNMI = 0b00000000;
+        }
+        if (ppu->vCounter < 225 && ppu->hCounter == 256) // Start of HBlank
+        {
+            hdmaRan = false;
+            runHBlank = false;
+        }
+        if (ppu->hCounter == 0 && ppu->vCounter == 0) // Start of Frame
+        {
+            dma->initializeHDMA();
+        }
 
-            switch (type)
-            {
-            case 0:
-                break;
-            case 1:
-                TIMEUP = 0b10000000;
-                if ((HTIMEH << 8 | HTIMEL) == ppu->hCounter)
-                    cpu->invokeIRQ();
-                break;
-            case 2:
-                TIMEUP = 0b10000000;
-                if ((VTIMEH << 8 | VTIMEL) == ppu->vCounter && ppu->hCounter == 0)
-                    cpu->invokeIRQ();
-                break;
-            case 3:
-                TIMEUP = 0b10000000;
-                if ((VTIMEH << 8 | VTIMEL) == ppu->vCounter && ppu->hCounter == (HTIMEH << 8 | HTIMEL))
-                    cpu->invokeIRQ();
-                break;
+        // H-V Timer IRQ
+        uint8 type = (NMITIMEN & 0b00110000) >> 4;
 
-            default:
-                break;
-            }
+        switch (type)
+        {
+        case 0:
+            break;
+        case 1:
+            TIMEUP = 0b10000000;
+            if ((HTIMEH << 8 | HTIMEL) == ppu->hCounter)
+                cpu->invokeIRQ();
+            break;
+        case 2:
+            TIMEUP = 0b10000000;
+            if ((VTIMEH << 8 | VTIMEL) == ppu->vCounter && ppu->hCounter == 0)
+                cpu->invokeIRQ();
+            break;
+        case 3:
+            TIMEUP = 0b10000000;
+            if ((VTIMEH << 8 | VTIMEL) == ppu->vCounter && ppu->hCounter == (HTIMEH << 8 | HTIMEL))
+                cpu->invokeIRQ();
+            break;
+
+        default:
+            break;
         }
 
         emuStep++;
@@ -619,7 +614,7 @@ void WriteIO(add24 address, uint8 data)
         case 0x2180: // WMDATA
         {
             // TODO : check this later
-            add24 memAdd =  (WMADDH << 16 | WMADDM << 8 | WMADDL);
+            add24 memAdd = (WMADDH << 16 | WMADDM << 8 | WMADDL);
             ram[memAdd] = data;
             memAdd++;
             WMADDL = memAdd & 0x0000FF;
@@ -1031,7 +1026,6 @@ int main(int argc, char *argv[])
     dma = new DMA(DMARead, DMAWrite);
     mdu = new MDUnit();
     ctrlsys = new ControllerSystem();
-
 
     cpuTraceFile = ofstream("CPUTrace.txt");
 

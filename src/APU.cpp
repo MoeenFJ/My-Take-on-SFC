@@ -73,9 +73,7 @@ namespace APU
 
     uint8 SPCRead(uint16 address)
     {
-        if (address <= 0x00EF) // RAM 0000 to 00EF
-            return aram[address];
-        else if (address <= 0x00FF) // IO 00F0 to 00FF
+        if ((address & 0xFFF0) == 0x00F0) // IO 00F0 to 00FF
         {
             switch (address & 0x000F)
             {
@@ -88,7 +86,6 @@ namespace APU
             case 0x3: // DSPDATA
                 break;
 
-                
             case 0x4: // CPUIO0
                 return APUIO0;
                 break;
@@ -102,8 +99,8 @@ namespace APU
                 return APUIO3;
                 break;
 
-            //The following are unsued but they hold their value, so they can be used as storage.
-            //And since SPC writes also are passed through the ARAM at that location, we can just return the ram.
+            // The following are unsued but they hold their value, so they can be used as storage.
+            // And since SPC writes also are passed through the ARAM at that location, we can just return the ram.
             case 0x8: // AUXIO4 (unused)
                 return aram[address];
                 break;
@@ -147,27 +144,20 @@ namespace APU
             default:
                 break;
             }
-         
+
             return 0;
         }
-        else if (address <= 0x01FF) // RAM 0100 to 01FF
+
+        if (ramRomSel && (address & 0xFFC0) == 0xFFC0)
+            return arom[(address & (~0xFFC0))];
+        else
             return aram[address];
-        else if (address <= 0xFFBF) // RAM 0200 to 0FFBF
-            return aram[address];
-        else // RAM or ROM FFC0 to FFFF based on reg 0x00F1
-        {
-            if (ramRomSel)
-                return arom[(address - 0xFFC0)];
-            else
-                return aram[address];
-        }
         return 0;
     }
     void SPCWrite(uint16 address, uint8 data)
     {
-        if (address <= 0x00EF) // RAM 0000 to 00EF
-            aram[address] = data;
-        else if (address <= 0x00FF) // IO 00F0 to 00FF
+        aram[address] = data;
+        if ((address & 0xFFF0) == 0x00F0) // IO 00F0 to 00FF
         {
             switch (address & 0x000F)
             {
@@ -177,7 +167,7 @@ namespace APU
                 break;
             case 0x1: // CONTROL
             {
-                if(data & 0b00000001)
+                if (data & 0b00000001)
                     t0En = true;
                 else
                 {
@@ -186,7 +176,7 @@ namespace APU
                     t0div = 1;
                 }
 
-                if(data & 0b00000010)
+                if (data & 0b00000010)
                     t1En = true;
                 else
                 {
@@ -195,7 +185,7 @@ namespace APU
                     t1div = 1;
                 }
 
-                if(data & 0b00000100)
+                if (data & 0b00000100)
                     t2En = true;
                 else
                 {
@@ -204,18 +194,14 @@ namespace APU
                     t2div = 1;
                 }
 
-
                 ramRomSel = data & 0b10000000;
                 break;
             }
-
 
             case 0x2: // DSPADDR
                 break;
             case 0x3: // DSPDATA
                 break;
-
-
 
             case 0x4: // CPUIO0
                 CPUIO0 = data;
@@ -234,7 +220,6 @@ namespace APU
                 return;
                 break;
 
-
             case 0x8: // AUXIO4 (unused)
                 break;
             case 0x9: // AUXIO5 (unused)
@@ -242,27 +227,19 @@ namespace APU
 
             // Write only
             case 0xa: // T0DIV
-                t0div = data?data:256;
+                t0div = data ? data : 256;
                 break;
             case 0xb: // T1DIV
-                t1div = data?data:256;
+                t1div = data ? data : 256;
                 break;
             case 0xc: // T2DIV
-                t2div = data?data:256;
+                t2div = data ? data : 256;
                 break;
 
             default:
                 break;
             }
-      
-            aram[address] = data;
         }
-        else if (address <= 0x01FF) // RAM 0100 to 01FF
-            aram[address] = data;
-        else if (address <= 0xFFBF) // RAM 0200 to 0FFBF
-            aram[address] = data;
-        else // Write always goes to ram
-            aram[address] = data;
     }
 
     void Init()
@@ -326,42 +303,70 @@ namespace APU
     // APU clock LCM = 24*128 = 3072
     // So the APU step counter must reset at a multiple of 3072
     // Biggest Multiple of 3072 that fits in 32 bits, is 1398101 * 3072
-    uint16 cpuClkCnt = 0;
     uint32_t stepCnt = 0;
+    uint16 t0Clk = 0;
+    uint16 t1Clk = 0;
+    uint16 t2Clk = 0;
     void Step()
     {
-        // 1 SPC clock per 24 APU clock.
-        if (stepCnt % 24 == 0)
-            cpuClkCnt++;
 
-        if (spc->cycles < cpuClkCnt)
+        if (spc->cycles < stepCnt)
         {
             spc->Step();
             // spc->PrintState();
         }
 
-        if (spc->cycles > 60000 && cpuClkCnt > 60000)
+        // if (spc->cycles > 60000 && stepCnt > 60000)
+        //{
+        //     stepCnt -= 60000;
+        //     spc->cycles -= 60000;
+        // }
+
+        // The 3 counters
+
+        if (t0En)
         {
-            cpuClkCnt -= 60000;
-            spc->cycles -= 60000;
+            if ((stepCnt & 127) == 0)
+            {
+                t0Clk++;
+
+                if (t0div == t0Clk)
+                {
+                    t0Val++;
+                    t0Clk = 0;
+                }
+            }
         }
 
+        if (t1En)
+        {
+            if ((stepCnt & 127) == 0)
+            {
+                t1Clk++;
 
-        //The 3 counters
-        if(stepCnt % (24*128*t0div) == 0 && t0En)
-            t0Val ++;
+                if (t1div == t1Clk)
+                {
+                    t1Val++;
+                    t1Clk = 0;
+                }
+            }
+        }
 
-        if(stepCnt % (24*128*t1div) == 0 && t1En)
-            t1Val ++;
+        if (t2En)
+        {
+            if ((stepCnt & 15) == 0)
+            {
+                t2Clk++;
 
-        if(stepCnt % (24*16*t2div) == 0 && t2En)
-            t2Val ++;
+                if (t2div == t2Clk)
+                {
+                    t2Val++;
+                    t2Clk = 0;
+                }
+            }
+        }
 
         // Update step counter
         stepCnt++;
-        if (stepCnt == 3072 * 1398101)
-        {
-            stepCnt = 0;
-        }
     }
 };

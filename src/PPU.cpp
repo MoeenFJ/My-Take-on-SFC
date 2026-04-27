@@ -1,5 +1,6 @@
 #include <bits/stdc++.h>
 #include <MiniFB.h>
+#include <assert.h>
 using namespace std;
 typedef unsigned char uint8;
 typedef unsigned short uint16;
@@ -105,6 +106,21 @@ struct PPURegs
 };
 const int FB_WIDTH = 256;
 const int FB_HEIGHT = 224;
+
+struct Object
+{
+    bool objVisible;
+    bool size;
+    uint8 objY;
+    int16_t objX;
+    uint8 objChrName;
+    bool objChrTable;
+    uint8 objClrPal;
+    uint8 objPrior;
+    bool objHF;
+    bool objVF;
+};
+
 class PPU
 {
 
@@ -123,10 +139,11 @@ public:
     bool cgDataHL = false;
     uint8 cgAddr = 0;
 
-    // OAM
+    // OAM , Object data
     uint16 oam[272] = {0};
     uint16 oamAddr = 0;
     bool oamDataHL = false;
+    Object objs[128];
 
     // Counters
     uint16 hCounter = 0;
@@ -198,6 +215,7 @@ public:
     uint16 mode7D = 0;
     uint16 centerX = 0;
     uint16 centerY = 0;
+    uint8 mode7Old = 0;
 
     bool mode7AHL = false;
     bool mode7BHL = false;
@@ -236,12 +254,12 @@ public:
 
     uint16 VRAMRead(uint16 add)
     {
-        return vram[TranslateVRAMAddress(add&0x7FFF)];
+        return vram[TranslateVRAMAddress(add & 0x7FFF)];
     }
 
     void doMult()
     {
-        int32_t mult = (int16_t)mode7A * (int8_t)(mode7B & 0x00FF);
+        int32_t mult = (int16_t)mode7A * (int8_t)((mode7B >> 8));
         regs.MPYL = mult & 0x000000FF;
         regs.MPYM = (mult & 0x0000FF00) >> 8;
         regs.MPYH = (mult & 0x00FF0000) >> 16;
@@ -268,7 +286,7 @@ public:
 
             break;
         }
-        vramPtr &= 0x7FFF; //Bit 15 of vram address is ignored.
+        vramPtr &= 0x7FFF; // Bit 15 of vram address is ignored.
     }
     uint16 TranslateVRAMAddress(uint16 addr)
     {
@@ -305,7 +323,6 @@ public:
     {
         switch (address)
         {
-
 
         case 0x2134: // MPYL
             return this->regs.MPYL;
@@ -433,23 +450,87 @@ public:
             break;
         case 0x2103: // OAMADDH
             oamDataHL = false;
-            oamAddr = (oamAddr & 0x00ff) | (data << 8);
+            oamAddr = (oamAddr & 0x00ff) | ((data & 0b00000001) << 8);
             break;
 
         case 0x2104: // OAMDATA
         {
-            // TODO : add object priority
+            uint8 idx = oamAddr >> 1;
+            uint8 wSel = oamAddr & 0x0001;
+            uint8 secIdx = (oamAddr - 0x100) << 3;
             if (!oamDataHL) // Low
             {
+
                 oamDataHL = true;
-                oam[oamAddr] = (oam[oamAddr] & 0xff00) | data;
+
+                if (oamAddr <= 255)
+                {
+                    if (wSel == 0)
+                    {
+                        objs[idx].objX = (objs[idx].objX & 0xFF00) | data;
+                        objs[idx].objVisible = objs[idx].objX > -8;
+                    }
+                    else
+                        objs[idx].objChrName = data;
+                }
+                else
+                {
+                    objs[secIdx].objX = (objs[secIdx].objX & 0x00FF) | ((data & 0b00000001) ? 0xFF00 : 0x0000);
+                    objs[secIdx].size = data & 0b00000010;
+                    objs[secIdx].objVisible = objs[secIdx].objX > -8;
+
+                    objs[secIdx + 1].objX = (objs[secIdx + 1].objX & 0x00FF) | ((data & 0b00000100) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 1].size = data & 0b00001000;
+                    objs[secIdx + 1].objVisible = objs[secIdx + 1].objX > -8;
+
+                    objs[secIdx + 2].objX = (objs[secIdx + 2].objX & 0x00FF) | ((data & 0b00010000) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 2].size = data & 0b00100000;
+                    objs[secIdx + 2].objVisible = objs[secIdx + 2].objX > -8;
+
+                    objs[secIdx + 3].objX = (objs[secIdx + 3].objX & 0x00FF) | ((data & 0b01000000) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 3].size = data & 0b10000000;
+                    objs[secIdx + 3].objVisible = objs[secIdx + 3].objX > -8;
+                }
             }
             else // High
             {
-                oam[oamAddr] = (data) << 8 | (oam[oamAddr] & 0x00ff);
 
+                if (oamAddr <= 255)
+                {
+                    if (wSel == 0)
+                    {
+                        objs[idx].objY = data;
+                    }
+                    else
+                    {
+                        objs[idx].objChrTable = data & 0b00000001;
+                        objs[idx].objClrPal = (data & 0b00001110) >> 1;
+                        objs[idx].objPrior = (data & 0b00110000) >> 4;
+                        objs[idx].objHF = data & 0b01000000;
+                        objs[idx].objVF = data & 0b10000000;
+                    }
+                }
+                else
+                {
+                    objs[secIdx + 4].objX = (objs[secIdx + 4].objX & 0x00FF) | ((data & 0b00000001) ? 0xFF00 : 0x000);
+                    objs[secIdx + 4].size = data & 0b00000010;
+                    objs[secIdx + 4].objVisible = objs[secIdx + 4].objX > -8;
+
+                    objs[secIdx + 5].objX = (objs[secIdx + 5].objX & 0x00FF) | ((data & 0b00000100) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 5].size = data & 0b00001000;
+                    objs[secIdx + 5].objVisible = objs[secIdx + 5].objX > -8;
+
+                    objs[secIdx + 6].objX = (objs[secIdx + 6].objX & 0x00FF) | ((data & 0b00010000) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 6].size = data & 0b00100000;
+                    objs[secIdx + 6].objVisible = objs[secIdx + 6].objX > -8;
+
+                    objs[secIdx + 7].objX = (objs[secIdx + 7].objX & 0x00FF) | ((data & 0b01000000) ? 0xFF00 : 0x0000);
+                    objs[secIdx + 7].size = data & 0b10000000;
+                    objs[secIdx + 7].objVisible = objs[secIdx + 7].objX > -8;
+                }
                 oamAddr++;
-
+                if (oamAddr > 271)
+                    oamAddr = 0;
                 oamDataHL = false;
             }
             break;
@@ -505,28 +586,32 @@ public:
             break;
 
         case 0x210D:           // BG1H0FS
-            if (!BG1HScrollHL) // Low
-            {
-                BG1HScroll = (BG1HScroll & 0xFF00) | data;
-                BG1HScrollHL = true;
-            }
-            else // High
-            {
-                BG1HScroll = (BG1HScroll & 0x00FF) | (data << 8);
-                BG1HScrollHL = false;
-            }
+            //if (!BG1HScrollHL) // Low
+            //{
+            //    BG1HScroll = (BG1HScroll & 0xFF00) | data;
+            //    BG1HScrollHL = true;
+            //}
+            //else // High
+            //{
+            //    BG1HScroll = (BG1HScroll & 0x00FF) | (data << 8);
+            //    BG1HScrollHL = false;
+            //}
+            BG1HScroll = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
         case 0x210E:           // BG1V0FS
-            if (!BG1VScrollHL) // Low
-            {
-                BG1VScroll = (BG1VScroll & 0xFF00) | data;
-                BG1VScrollHL = true;
-            }
-            else // High
-            {
-                BG1VScroll = (BG1VScroll & 0x00FF) | (data << 8);
-                BG1VScrollHL = false;
-            }
+            //if (!BG1VScrollHL) // Low
+            //{
+            //    BG1VScroll = (BG1VScroll & 0xFF00) | data;
+            //    BG1VScrollHL = true;
+            //}
+            //else // High
+            //{
+            //    BG1VScroll = (BG1VScroll & 0x00FF) | (data << 8);
+            //    BG1VScrollHL = false;
+            //}
+            BG1VScroll = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
         case 0X210F:           // BG2H0FS
@@ -643,90 +728,53 @@ public:
             this->regs.M7SEL = data;
             break;
 
-        case 0x211B:       // M7A
-            if (!mode7AHL) // Low
-            {
-                mode7A = (mode7A & 0xFF00) | data;
-                mode7AHL = true;
-            }
-            else // High
-            {
-                mode7A = (mode7A & 0x00FF) | (data << 8);
-                mode7AHL = false;
-            }
+        case 0x211B: // M7A
+            // if (!mode7AHL) // Low
+            //{
+            //     mode7A = (mode7A & 0xFF00) | data;
+            //     mode7AHL = true;
+            // }
+            // else // High
+            //{
+            //     mode7A = (mode7A & 0x00FF) | (data << 8);
+            //     mode7AHL = false;
+            // }
+            mode7A = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
-        case 0x211C:       // M7B
-            if (!mode7BHL) // Low
-            {
-                mode7B = (mode7B & 0xFF00) | data;
-                mode7BHL = true;
-                doMult();
-            }
-            else // High
-            {
-                mode7B = (mode7B & 0x00FF) | (data << 8);
-                mode7BHL = false;
-            }
+        case 0x211C: // M7B
+            mode7B = (data << 8) | mode7Old;
+            mode7Old = data;
+            doMult();
+
             break;
 
-        case 0x211D:       // M7C
-            if (!mode7CHL) // Low
-            {
-                mode7C = (mode7C & 0xFF00) | data;
-                mode7CHL = true;
-            }
-            else // High
-            {
-                mode7C = (mode7C & 0x00FF) | (data << 8);
-                mode7CHL = false;
-            }
+        case 0x211D: // M7C
+            mode7C = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
-        case 0x211E:       // M7D
-            if (!mode7DHL) // Low
-            {
-                mode7D = (mode7D & 0xFF00) | data;
-                mode7DHL = true;
-            }
-            else // High
-            {
-                mode7D = (mode7D & 0x00FF) | (data << 8);
-                mode7DHL = false;
-            }
+        case 0x211E: // M7D
+            mode7D = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
-        case 0x211F:        // M7X
-            if (!centerXHL) // Low
-            {
-                centerX = (centerX & 0xFF00) | data;
-                centerXHL = true;
-            }
-            else // High
-            {
-                centerX = (centerX & 0x00FF) | (data << 8);
-                centerXHL = false;
-            }
+        case 0x211F: // M7X
+            centerX = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
-        case 0x2120:        // M7Y
-            if (!centerYHL) // Low
-            {
-                centerY = (centerY & 0xFF00) | data;
-                centerYHL = true;
-            }
-            else // High
-            {
-                centerY = (centerY & 0x00FF) | (data << 8);
-                centerYHL = false;
-            }
+        case 0x2120: // M7Y
+            centerY = (data << 8) | mode7Old;
+            mode7Old = data;
             break;
 
         case 0x2121: // CGADD
         {
             cgDataHL = false;
             cgAddr = data;
-            cout << "CGADD : " << hex << (unsigned int)data << endl;
+            // cout << "CGADD : " << hex << (unsigned int)data << endl;
             break;
         }
         case 0x2122: // CGDATA
@@ -735,12 +783,12 @@ public:
             {
                 cgDataHL = true;
                 cgram[cgAddr] = (cgram[cgAddr] & 0xff00) | data;
-                cout << "CGDATA(Low) : " << hex << (unsigned int)data << endl;
+                // cout << "CGDATA(Low) : " << hex << (unsigned int)data << endl;
             }
             else // High
             {
                 cgram[cgAddr] = (cgram[cgAddr] & 0x00ff) | (data << 8);
-                cout << "CGDATA(High) : " << hex << (unsigned int)data << endl;
+                // cout << "CGDATA(High) : " << hex << (unsigned int)data << endl;
                 cgAddr++;
                 cgDataHL = false;
             }
@@ -910,13 +958,7 @@ public:
                 for (int i = 127; i >= 0; i--)
                 {
 
-                    uint8 shftAmnt = ((i & 0b00000111) << 1);
-                    uint8 objY = (oam[i << 1] & 0xff00) >> 8;
-                    int16_t objX = (oam[i << 1] & 0x00ff);
-                    bool xSign = oam[256 + (i >> 3)] & (0x01 << shftAmnt);
-                    objX |= xSign ? 0xFF00 : 0x0000;
-
-                    bool objSizeFlag = (oam[256 + (i >> 3)] & (0x02 << shftAmnt));
+                    bool objSizeFlag = objs[i].size;
 
                     uint8 objSize = 8;
                     switch (objAvailSize)
@@ -944,38 +986,32 @@ public:
                         break;
                     }
 
-                    if (vCounter < objY || vCounter >= objY + objSize || hCounter < objX || hCounter >= objX + objSize) // Point not in obj then go to next
+                    if (vCounter < objs[i].objY || vCounter >= objs[i].objY + objSize || hCounter < objs[i].objX || hCounter >= objs[i].objX + objSize) // Point not in obj then go to next
                     {
                         continue;
                     }
 
-                    uint16 chr = oam[(i << 1) + 1] & 0x00ff;
-                    bool table = oam[(i << 1) + 1] & 0x0100;
-                    uint8 pal = (oam[(i << 1) + 1] & 0b0000111000000000) >> 9;
-                    uint8 prior = (oam[(i << 1) + 1] & 0b0011000000000000) >> 12;
-                    bool vf = oam[(i << 1) + 1] & 0b1000000000000000;
-                    bool hf = oam[(i << 1) + 1] & 0b0100000000000000;
-
                     uint8 colorIdx = 0;
 
-                    uint8 tileX = (hCounter - objX) >> 3;
-                    uint8 tileY = (vCounter - objY) >> 3;
-                    if (hf)
+                    uint8 tileX = (hCounter - objs[i].objX) >> 3;
+                    uint8 tileY = (vCounter - objs[i].objY) >> 3;
+                    if (objs[i].objHF)
                         tileX = ((objSize >> 3) - 1) - tileX;
-                    if (vf)
+                    if (objs[i].objVF)
                         tileY = ((objSize >> 3) - 1) - tileY;
 
-                    uint8 x = (hCounter - objX) & 0x07;
-                    uint8 y = (vCounter - objY) & 0x07;
+                    uint8 x = (hCounter - objs[i].objX) & 0x07;
+                    uint8 y = (vCounter - objs[i].objY) & 0x07;
 
-                    chr += tileX + (tileY << 4);
+                    uint16 chr = objs[i].objChrName;
+                    chr += (uint16)tileX + ((uint16)tileY << 4);
 
-                    if (hf)
+                    if (objs[i].objHF)
                         x = 7 - x;
-                    if (vf)
+                    if (objs[i].objVF)
                         y = 7 - y;
 
-                    uint16 objCharAddr = (table ? OBJChrTable2BaseAddr : OBJChrTable1BaseAddr) + (chr << 4); // Obj size later plays a part in here
+                    uint16 objCharAddr = (objs[i].objChrTable ? OBJChrTable2BaseAddr : OBJChrTable1BaseAddr) + (chr << 4);
 
                     colorIdx |= ((VRAMRead(objCharAddr + y) >> (7 - x)) & 0x01);
 
@@ -985,12 +1021,30 @@ public:
 
                     colorIdx |= ((VRAMRead(objCharAddr + y + 8) >> (15 - x)) & 0x01) << 3;
 
-                    if (prior >= ojbprior && colorIdx != 0)
+                    if (objs[i].objPrior >= ojbprior && colorIdx != 0)
                     {
-                        ojbprior = prior;
-                        objcol = cgram[0b10000000 | (pal << 4) | colorIdx];
+                        ojbprior = objs[i].objPrior;
+                        objcol = cgram[0b10000000 | (objs[i].objClrPal << 4) | colorIdx];
                         objopaque = true;
                     }
+                    // cout << "=-=-=-=-=-=- OBJ[" << i << "] -=-=-=-=-=-=-=" << endl;
+                    // cout << "OBJChrTable1BaseAddr" << hex << (uint16) OBJChrTable1BaseAddr << endl;
+                    // cout << "OBJChrTable2BaseAddr" << hex << (uint16) OBJChrTable2BaseAddr << endl;
+                    // cout << "hCount "  << dec << hCounter << endl;
+                    // cout << "vCount " << vCounter << endl;
+                    // cout << "tileX " << (uint16)tileX << endl;
+                    // cout << "tileY " << (uint16)tileY << endl;
+                    // cout << "colorIdx " << (uint16)colorIdx << endl;
+                    // cout << "objCol " << (uint16)objcol << endl;
+                    // cout << "objGlobalSize " << (uint16)objAvailSize << endl;
+                    // cout << "objSizeFlag " << (uint16)objSizeFlag << endl;
+                    // cout << "objSize " << (uint16)objSize << endl;
+                    // cout << "ojbprior " << (uint16)objs[i].objPrior << endl;
+                    // cout << "x " << objs[i].objX << " y " << (uint16)objs[i].objY << endl;
+                    // cout << "Char " << (uint16)objs[i].objChrName << endl;
+                    // cout << "TileChar " << (uint16)chr << endl;
+                    // cout << "CharAddr " << hex << objCharAddr << endl;
+                    // cout << "paletter " << dec << (uint16)objs[i].objClrPal << endl;
                 }
             }
 
@@ -1098,8 +1152,8 @@ public:
                 int16_t C = mode7C;
                 int16_t D = mode7D;
 
-                uint16 transX = ((float)A / 256.f) * (hOffset - cx) + ((float)B / 256.f) * (vOffset - cy) + cx;
-                uint16 transY = ((float)C / 256.f) * (hOffset - cx) + ((float)D / 256.f) * (vOffset - cy) + cy;
+                uint16 transX = (A / 256.f) * ((int16_t)hOffset - cx) + (B / 256.f) * (vOffset - cy) + cx;
+                uint16 transY = (C / 256.f) * ((int16_t)hOffset - cx) + (D / 256.f) * (vOffset - cy) + cy;
 
                 hOffset = transX;
                 vOffset = transY;
@@ -1558,6 +1612,9 @@ public:
             else if (bgFilter == 5)
                 mainScreenCol = objcol;
 
+            // if(mode == 7)
+            //     mainScreenCol = 0;
+
             int16_t mainR = ((mainScreenCol & 0b0000000000011111) >> 0);
             int16_t mainG = ((mainScreenCol & 0b0000001111100000) >> 5);
             int16_t mainB = ((mainScreenCol & 0b0111110000000000) >> 10);
@@ -1587,9 +1644,15 @@ public:
                 mainB = mainB >> (addSubHalf ? 1 : 0);
             }
 
-            mainR = (mainR << 3) / (16 - fadeValue);
-            mainG = (mainG << 3) / (16 - fadeValue);
-            mainB = (mainB << 3) / (16 - fadeValue);
+            uint8 fade = ((15 - fadeValue) << 4);
+            mainR = (mainR << 3);
+            mainR = fade > mainR ? 0 : (mainR - fade);
+
+            mainG = (mainG << 3);
+            mainG = fade > mainG ? 0 : (mainG - fade);
+
+            mainB = (mainB << 3);
+            mainB = fade > mainB ? 0 : (mainB - fade);
 
             // cout << "RGB : (" << dec << (unsigned int)R << "," << (unsigned int)G << "," << (unsigned int)B << ")" << endl;
 
